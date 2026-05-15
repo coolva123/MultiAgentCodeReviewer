@@ -1,0 +1,61 @@
+name: AI Code Review
+
+# 触发条件：PR 创建或有新 push 时运行
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    # GITHUB_TOKEN 需要写入 PR Comment 的权限
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout reviewer
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('code-review-agent/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r code-review-agent/requirements.txt
+
+      - name: Run AI Reviewer
+        working-directory: code-review-agent
+        env:
+          # ── 必填：LLM ──────────────────────────────────────────────
+          LLM_PROVIDER: deepseek
+          LLM_MODEL: deepseek-v4-flash
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com
+
+          # ── 必填：GitHub（自动注入，无需手动配置 Secret）────────────
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # ── 可选：Embedding + 长期记忆（不配置则自动跳过）──────────
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          ZHIPU_BASE_URL: https://open.bigmodel.cn/api/paas/v4/
+          ZHIPU_EMBED_MODEL: embedding-3
+          PG_DATABASE_URL: ${{ secrets.PG_DATABASE_URL }}
+
+          # ── 可选：Semgrep MCP（不配置则降级到本地 semgrep）─────────
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+        run: |
+          python main.py \
+            --pr-url "${{ github.event.pull_request.html_url }}" \
+            --post-comment
