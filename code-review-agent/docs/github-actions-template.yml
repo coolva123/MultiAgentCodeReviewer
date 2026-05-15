@@ -1,0 +1,80 @@
+# ============================================================
+# AI Code Review — 目标仓库使用模板
+#
+# 使用方法：
+#   1. 把这个文件复制到你的目标仓库：
+#      .github/workflows/ai-code-review.yml
+#
+#   2. 把第 23 行的 repository 改成你自己的 GitHub 用户名：
+#      repository: your-github-username/MultiAgentCodeReviewer
+#
+#   3. 在目标仓库配置以下 Secrets：
+#      Settings → Secrets and variables → Actions → New repository secret
+#        DEEPSEEK_API_KEY  = sk-xxxxxx               （必填）
+#        ZHIPU_API_KEY     = xxxxxx                  （可选，长期记忆）
+#        PG_DATABASE_URL   = postgresql://...         （可选，长期记忆）
+#        SEMGREP_APP_TOKEN = xxxxxx                  （可选，MCP 扫描）
+#      注意：GITHUB_TOKEN 由 GitHub 自动注入，无需手动添加
+#
+#   4. 如果 MultiAgentCodeReviewer 是私有仓库，还需要：
+#      - 创建一个 Personal Access Token（PAT），scope 选 repo
+#      - 添加 Secret：REVIEWER_PAT = ghp_xxxxxx
+#      - 把第 28 行注释取消：token: ${{ secrets.REVIEWER_PAT }}
+# ============================================================
+
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout AI Reviewer
+        uses: actions/checkout@v4
+        with:
+          repository: your-github-username/MultiAgentCodeReviewer  # ← 改成你的用户名
+          path: reviewer
+          # 私有仓库时取消注释：
+          # token: ${{ secrets.REVIEWER_PAT }}
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('reviewer/code-review-agent/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r reviewer/code-review-agent/requirements.txt
+
+      - name: Run AI Reviewer
+        working-directory: reviewer/code-review-agent
+        env:
+          LLM_PROVIDER: deepseek
+          LLM_MODEL: deepseek-v4-flash
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          DEEPSEEK_BASE_URL: https://api.deepseek.com
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ZHIPU_API_KEY: ${{ secrets.ZHIPU_API_KEY }}
+          ZHIPU_BASE_URL: https://open.bigmodel.cn/api/paas/v4/
+          ZHIPU_EMBED_MODEL: embedding-3
+          PG_DATABASE_URL: ${{ secrets.PG_DATABASE_URL }}
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+        run: |
+          python main.py \
+            --pr-url "${{ github.event.pull_request.html_url }}" \
+            --post-comment

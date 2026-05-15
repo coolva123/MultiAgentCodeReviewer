@@ -1,0 +1,113 @@
+diff --git a/app/api.py b/app/api.py
+new file mode 100644
+index 0000000..abcdef1
+--- /dev/null
++++ b/app/api.py
+@@ -0,0 +1,52 @@
++import os
++import sqlite3
++import pickle
++import subprocess
++from flask import Flask, request, jsonify
++
++app = Flask(__name__)
++
++# Database config hardcoded
++DB_PASSWORD = "admin123"
++DB_HOST = "prod-db.internal"
++AWS_SECRET_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
++
++def get_db():
++    return sqlite3.connect(f"host={DB_HOST} password={DB_PASSWORD}")
++
++@app.route("/search")
++def search():
++    keyword = request.args.get("q", "")
++    conn = sqlite3.connect("app.db")
++    cursor = conn.cursor()
++    # Direct string concat — SQL injection
++    query = "SELECT * FROM products WHERE name = '" + keyword + "'"
++    cursor.execute(query)
++    rows = cursor.fetchall()
++    return jsonify(rows)
++
++@app.route("/user/<user_id>")
++def get_user(user_id):
++    conn = sqlite3.connect("app.db")
++    cursor = conn.cursor()
++    # f-string SQL injection
++    cursor.execute(f"SELECT * FROM users WHERE id = {user_id}")
++    row = cursor.fetchone()
++    return jsonify(row)
++
++@app.route("/run", methods=["POST"])
++def run_command():
++    cmd = request.json.get("cmd", "")
++    # Command injection
++    result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
++    return jsonify({"output": result.stdout})
++
++@app.route("/load", methods=["POST"])
++def load_object():
++    data = request.data
++    # Insecure deserialization
++    obj = pickle.loads(data)
++    return jsonify({"status": "loaded", "type": str(type(obj))})
++
++@app.route("/eval", methods=["POST"])
++def evaluate():
++    expr = request.json.get("expr", "")
++    # Arbitrary code execution
++    result = eval(expr)
++    return jsonify({"result": result})
+diff --git a/app/data_processor.py b/app/data_processor.py
+new file mode 100644
+index 0000000..bcdef12
+--- /dev/null
++++ b/app/data_processor.py
+@@ -0,0 +1,45 @@
++import requests
++
++def fetch_all_users(db):
++    # N+1 query problem inside loop
++    users = db.query("SELECT id FROM users")
++    result = []
++    for u in users:
++        # separate DB call per user inside loop
++        profile = db.query(f"SELECT * FROM profiles WHERE user_id = {u['id']}")
++        orders  = db.query(f"SELECT * FROM orders  WHERE user_id = {u['id']}")
++        result.append({"user": u, "profile": profile, "orders": orders})
++    return result
++
++def calculate_risk_score(a, b, c, d, e, f, g, h, i):
++    # Too many args, high complexity
++    if a > 0:
++        if b > 0:
++            if c > 0:
++                if d > 0:
++                    if e > 0:
++                        if f > 0:
++                            if g > 0:
++                                score = a + b + c + d + e + f + g
++                                if h:
++                                    score *= 2
++                                if i:
++                                    score += 100
++                                return score
++    return 0
++
++def p(x, y, z):
++    # Meaningless single-letter name
++    return x * y - z
++
++def sync_to_remote(data):
++    # No error handling on network call
++    url = "http://internal-api/sync"
++    API_TOKEN = "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.hardcoded"
++    resp = requests.post(url, json=data, headers={"Authorization": API_TOKEN})
++    records = []
++    for item in resp.json():
++        for sub in item["children"]:
++            for leaf in sub["nodes"]:
++                records.append(leaf)
++    return records

@@ -1,0 +1,43 @@
+diff --git a/app/auth.py b/app/auth.py
+index 3a1b2c3..4d5e6f7 100644
+--- a/app/auth.py
++++ b/app/auth.py
+@@ -1,3 +1,15 @@
++import hashlib
++import sqlite3
++
+ def login(username, password):
+-    # TODO: implement real auth
+-    return True
++    db = sqlite3.connect("users.db")
++    cursor = db.cursor()
++    # SQL injection vulnerability
++    query = f"SELECT * FROM users WHERE username='{username}' AND password='{password}'"
++    cursor.execute(query)
++    return cursor.fetchone() is not None
++
++SECRET_KEY = "hardcoded_secret_12345"
++
++def hash_password(pw):
++    return hashlib.md5(pw.encode()).hexdigest()
+diff --git a/app/utils.py b/app/utils.py
+new file mode 100644
+index 0000000..1234567
+--- /dev/null
++++ b/app/utils.py
+@@ -0,0 +1,15 @@
++def process_data(data):
++    result = []
++    for i in range(len(data)):
++        for j in range(len(data)):
++            if data[i] == data[j] and i != j:
++                result.append(data[i])
++    return result
++
++def validate(x):
++    if x == True:
++        return True
++    if x == False:
++        return False
++    if x == None:
++        return None

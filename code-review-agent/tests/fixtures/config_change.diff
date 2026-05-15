@@ -1,0 +1,31 @@
+diff --git a/.env.production b/.env.production
+new file mode 100644
+index 0000000..abc1234
+--- /dev/null
++++ b/.env.production
+@@ -0,0 +1,8 @@
++DATABASE_URL=postgres://admin:P@ssw0rd123@prod-db.internal:5432/myapp
++SECRET_KEY=django-insecure-abc123xyz789
++AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
++AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
++DEBUG=False
++ALLOWED_HOSTS=*.example.com
++SENTRY_DSN=https://abc123@sentry.io/123456
++REDIS_URL=redis://:secret@redis.internal:6379/0
+diff --git a/config/database.py b/config/database.py
+index 111aaaa..222bbbb 100644
+--- a/config/database.py
++++ b/config/database.py
+@@ -1,5 +1,11 @@
+ import os
+
+ DATABASES = {
+-    'default': dj_database_url.parse(os.environ['DATABASE_URL'])
++    'default': {
++        'ENGINE': 'django.db.backends.postgresql',
++        'NAME': 'myapp',
++        'USER': 'admin',
++        'PASSWORD': 'hardcoded_password_here',
++        'HOST': 'prod-db.internal',
++    }
+ }

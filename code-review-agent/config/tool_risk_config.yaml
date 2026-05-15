@@ -1,0 +1,116 @@
+# Tool Guard 风险等级配置
+# LOW    : 纯 Python 执行，无外部进程，直接运行
+# MEDIUM : 有外部 I/O 或写操作，记录日志后执行
+# HIGH   : 启动子进程 / shell 命令或远程工具调用，暂停等待用户确认 (HITL)
+#
+# max_retries : 工具失败时的最大重试次数（不含首次调用）
+# retry_delay : 每次重试前等待秒数（按指数退避递增）
+
+tools:
+  # ── 本地自定义工具（@tool 装饰的函数）────────────────────────────────────────
+  bandit_scan:
+    risk_level: HIGH
+    reason: "启动子进程执行 `python -m bandit`，属于 shell 命令调用"
+    max_retries: 1
+    retry_delay: 1.0
+
+  semgrep_scan:
+    risk_level: HIGH
+    reason: "启动 semgrep 子进程进行多语言静态分析，属于 shell 命令调用"
+    max_retries: 2
+    retry_delay: 1.0
+
+  ruff_check:
+    risk_level: HIGH
+    reason: "启动 ruff 子进程进行 Python lint 分析，属于 shell 命令调用"
+    max_retries: 2
+    retry_delay: 0.5
+
+  scan_secrets:
+    risk_level: LOW
+    reason: "纯 Python 正则扫描 diff 文本，无外部进程"
+    max_retries: 0
+
+  scan_sql_injection:
+    risk_level: LOW
+    reason: "纯 Python 正则扫描 diff 文本，无外部进程"
+    max_retries: 0
+
+  ast_analyze:
+    risk_level: LOW
+    reason: "纯 Python AST 解析，无外部进程"
+    max_retries: 0
+
+  write_file:
+    risk_level: MEDIUM
+    reason: "写入或修改本地文件"
+    max_retries: 1
+    retry_delay: 0.5
+
+  post_github_comment:
+    risk_level: MEDIUM
+    reason: "向 GitHub PR 发布评论"
+    max_retries: 2
+    retry_delay: 2.0
+
+  run_shell_command:
+    risk_level: HIGH
+    reason: "执行任意 shell 命令"
+    max_retries: 0
+
+  run_in_docker:
+    risk_level: HIGH
+    reason: "在 Docker 容器内执行命令"
+    max_retries: 1
+    retry_delay: 2.0
+
+  # ── Semgrep MCP Server 提供的工具（v1.163.0，streamable-http）────────────────
+  # 启动方式：SEMGREP_APP_TOKEN=<token> .venv/bin/semgrep mcp --transport streamable-http --port 8000
+
+  semgrep_scan_remote:
+    risk_level: HIGH
+    reason: "MCP 工具：向 MCP Server 发送代码内容执行 Semgrep 扫描（远程工具调用）"
+    max_retries: 2
+    retry_delay: 1.5
+
+  semgrep_scan_with_custom_rule:
+    risk_level: HIGH
+    reason: "MCP 工具：使用自定义 YAML 规则执行 Semgrep 扫描，规则内容不可预知"
+    max_retries: 1
+    retry_delay: 1.5
+
+  semgrep_scan_supply_chain:
+    risk_level: HIGH
+    reason: "MCP 工具：执行供应链/SCA 依赖漏洞扫描"
+    max_retries: 1
+    retry_delay: 2.0
+
+  semgrep_findings:
+    risk_level: MEDIUM
+    reason: "MCP 工具：查询 Semgrep AppSec Platform 历史扫描结果，只读 API 调用"
+    max_retries: 2
+    retry_delay: 1.0
+
+  get_abstract_syntax_tree:
+    risk_level: LOW
+    reason: "MCP 工具：只读取代码 AST 结构，无副作用"
+    max_retries: 2
+    retry_delay: 1.0
+
+  get_supported_languages:
+    risk_level: LOW
+    reason: "MCP 工具：查询 Semgrep 支持的语言列表，纯只读信息查询"
+    max_retries: 1
+    retry_delay: 0.5
+
+  semgrep_rule_schema:
+    risk_level: LOW
+    reason: "MCP 工具：获取 Semgrep 规则 YAML Schema，纯只读信息查询"
+    max_retries: 1
+    retry_delay: 0.5
+
+  semgrep_whoami:
+    risk_level: LOW
+    reason: "MCP 工具：查询当前登录用户信息，只读 API 调用"
+    max_retries: 1
+    retry_delay: 0.5

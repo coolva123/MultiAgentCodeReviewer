@@ -1,0 +1,61 @@
+diff --git a/services/payment_service.py b/services/payment_service.py
+index aaa1111..bbb2222 100644
+--- a/services/payment_service.py
++++ b/services/payment_service.py
+@@ -1,15 +1,25 @@
+-def process_payment(order_id, amount, currency, user_id, card_number, expiry, cvv):
+-    if not order_id: return False
+-    if amount <= 0: return False
+-    if not card_number: return False
+-    charge = amount
+-    if coupon_code == "SAVE10": charge = amount * 0.9
+-    if coupon_code == "SAVE20": charge = amount * 0.8
+-    if loyalty_points > 100: charge = charge - (loyalty_points * 0.01)
+-    result = gateway.charge(card_number, expiry, cvv, charge, currency)
+-    if result:
+-        db.update_order(order_id, "paid")
+-        db.update_user_points(user_id, -loyalty_points)
+-        notify.send_receipt(user_id, order_id, charge)
+-        return True
+-    return False
++from dataclasses import dataclass
++from decimal import Decimal
++
++@dataclass
++class PaymentRequest:
++    order_id: str
++    amount: Decimal
++    currency: str
++    card_token: str
++
++class DiscountCalculator:
++    COUPON_RATES = {"SAVE10": Decimal("0.9"), "SAVE20": Decimal("0.8")}
++
++    def apply(self, amount: Decimal, coupon: str, loyalty_pts: int) -> Decimal:
++        rate = self.COUPON_RATES.get(coupon, Decimal("1.0"))
++        discount = Decimal(loyalty_pts) * Decimal("0.01") if loyalty_pts > 100 else Decimal("0")
++        return amount * rate - discount
++
++class PaymentService:
++    def process(self, req: PaymentRequest, coupon: str = "", loyalty_pts: int = 0) -> bool:
++        charge = DiscountCalculator().apply(req.amount, coupon, loyalty_pts)
++        if not self.gateway.charge(req.card_token, charge, req.currency):
++            return False
++        self.db.update_order(req.order_id, "paid")
++        return True
+diff --git a/tests/test_payment.py b/tests/test_payment.py
+new file mode 100644
+index 0000000..ccc3333
+--- /dev/null
++++ b/tests/test_payment.py
+@@ -0,0 +1,10 @@
++from decimal import Decimal
++from unittest.mock import MagicMock
++from services.payment_service import PaymentService, PaymentRequest, DiscountCalculator
++
++def test_discount_coupon():
++    assert DiscountCalculator().apply(Decimal("100"), "SAVE10", 0) == Decimal("90.0")
++
++def test_process_payment_success():
++    svc = PaymentService()
++    assert svc is not None
