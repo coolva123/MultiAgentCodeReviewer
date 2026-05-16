@@ -9,20 +9,20 @@
 tools:
   # ── 本地自定义工具（@tool 装饰的函数）────────────────────────────────────────
   bandit_scan:
-    risk_level: HIGH
-    reason: "启动子进程执行 `python -m bandit`，属于 shell 命令调用"
+    risk_level: MEDIUM
+    reason: "启动子进程执行只读静态分析，不修改任何文件；HITL 对非交互场景无实际意义"
     max_retries: 1
     retry_delay: 1.0
 
   semgrep_scan:
-    risk_level: HIGH
-    reason: "启动 semgrep 子进程进行多语言静态分析，属于 shell 命令调用"
+    risk_level: MEDIUM
+    reason: "启动 semgrep 子进程进行只读静态分析；HITL 对非交互场景无实际意义"
     max_retries: 2
     retry_delay: 1.0
 
   ruff_check:
-    risk_level: HIGH
-    reason: "启动 ruff 子进程进行 Python lint 分析，属于 shell 命令调用"
+    risk_level: MEDIUM
+    reason: "启动 ruff 子进程进行只读 lint 分析；HITL 对非交互场景无实际意义"
     max_retries: 2
     retry_delay: 0.5
 
@@ -68,20 +68,20 @@ tools:
   # 启动方式：SEMGREP_APP_TOKEN=<token> .venv/bin/semgrep mcp --transport streamable-http --port 8000
 
   semgrep_scan_remote:
-    risk_level: HIGH
-    reason: "MCP 工具：向 MCP Server 发送代码内容执行 Semgrep 扫描（远程工具调用）"
+    risk_level: MEDIUM
+    reason: "MCP 工具：只读远程扫描，不修改文件；HITL 对非交互场景无实际意义"
     max_retries: 2
     retry_delay: 1.5
 
   semgrep_scan_with_custom_rule:
-    risk_level: HIGH
-    reason: "MCP 工具：使用自定义 YAML 规则执行 Semgrep 扫描，规则内容不可预知"
+    risk_level: MEDIUM
+    reason: "MCP 工具：只读自定义规则扫描；HITL 对非交互场景无实际意义"
     max_retries: 1
     retry_delay: 1.5
 
   semgrep_scan_supply_chain:
-    risk_level: HIGH
-    reason: "MCP 工具：执行供应链/SCA 依赖漏洞扫描"
+    risk_level: MEDIUM
+    reason: "MCP 工具：只读供应链依赖漏洞扫描；HITL 对非交互场景无实际意义"
     max_retries: 1
     retry_delay: 2.0
 
