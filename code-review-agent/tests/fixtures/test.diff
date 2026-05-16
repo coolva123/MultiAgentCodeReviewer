@@ -1,0 +1,17 @@
+TEST1
+
+diff --git a/auth/login.py b/auth/login.py
++++ b/auth/login.py
+@@ -0,0 +1,10 @@
++import sqlite3
++DB_PASSWORD = "admin123"
++SECRET_KEY = "hardcoded-jwt-secret"
++def login(username, password):
++    query = "SELECT * FROM users WHERE username='" + username + "' AND password='" + password + "'"
++    conn = sqlite3.connect('users.db')
++    conn.execute(query)
++def change_password(user_id, new_pwd):
++    conn.execute(f"UPDATE users SET password='{new_pwd}' WHERE id={user_id}")
+
+
+

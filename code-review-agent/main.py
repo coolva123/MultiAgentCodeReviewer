@@ -105,12 +105,13 @@ def main():
     logger.info("=" * 60)
 
     # ── 执行图 ─────────────────────────────────────────────────────────────────
-    from src.graph.graph import review_graph
+    from src.graph.supervisor_graph import supervisor_graph
 
     initial_state = {
         "diff_content":    diff_content,
         "pr_metadata":     pr_metadata,
         "repo_name":       repo_name,
+        "repo_url":        pr_url or "",
         "session_id":      session_id,
         "diff_files":      [],
         "diff_summary":    {},
@@ -118,6 +119,10 @@ def main():
         "security_findings": [],
         "quality_findings":  [],
         "final_report":    None,
+        "research_context": "",
+        "supervisor_instruction": "",
+        "iteration_count": 0,
+        "review_pipeline_called": False,
         "tool_call_log":   [],
         "agent_messages":  [],
         "errors":          [],
@@ -128,7 +133,7 @@ def main():
     config = {"configurable": {"thread_id": session_id}}
 
     logger.info("Graph 开始执行 ...")
-    result = review_graph.invoke(initial_state, config=config)
+    result = supervisor_graph.invoke(initial_state, config=config)
 
     # ── 输出摘要日志 ───────────────────────────────────────────────────────────
     logger.info("=" * 60)
@@ -175,13 +180,6 @@ def main():
                 logger.info("PR Comment 发布成功: %s", comment_url)
             except Exception as exc:
                 logger.error("PR Comment 回写失败: %s", exc)
-
-    # ── Checkpointing 验证 ─────────────────────────────────────────────────────
-    saved = review_graph.get_state(config)
-    if saved.values.get("review_complete"):
-        logger.info("Checkpointing 验证通过 ✓")
-    else:
-        logger.warning("Checkpointing 验证：review_complete=False")
 
     # 错误汇总
     errors = result.get("errors", [])

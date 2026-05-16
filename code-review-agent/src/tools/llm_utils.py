@@ -13,7 +13,7 @@ import time
 from typing import Type, TypeVar
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,20 @@ _MAX_RETRIES = 2
 _RETRY_DELAY = 1.0   # 秒，每次翻倍
 
 
+def strip_reasoning(messages: list) -> list:
+    """Strip reasoning_content from AIMessages to prevent DeepSeek multi-turn API errors."""
+    result = []
+    for msg in messages:
+        if isinstance(msg, AIMessage) and msg.additional_kwargs.get("reasoning_content"):
+            msg = AIMessage(
+                content=msg.content,
+                tool_calls=getattr(msg, "tool_calls", None) or [],
+                id=getattr(msg, "id", None),
+            )
+        result.append(msg)
+    return result
+
+
 def call_structured(
     llm: BaseChatModel,
     messages: list,
@@ -44,6 +58,8 @@ def call_structured(
     失败则回退到 JSON prompt + 手动解析（DeepSeek / GLM）。
     失败时做指数退避重试，最多 _MAX_RETRIES 次。
     """
+    messages = strip_reasoning(messages)
+
     # ── 方案 A：原生结构化输出 ─────────────────────────────────────────────────
     try:
         structured_llm = llm.with_structured_output(output_model, method="function_calling")
@@ -54,12 +70,12 @@ def call_structured(
         logger.debug("[llm_utils] with_structured_output 失败，回退 JSON prompt: %s", e)
 
     # ── 方案 B：JSON prompt + 手动解析（带重试）──────────────────────────────
+    # Append a new HumanMessage rather than replacing the last message, so that
+    # existing AIMessage/ToolMessage pairs remain intact and the API does not
+    # complain about "insufficient tool messages following tool_calls".
     schema = json.dumps(output_model.model_json_schema(), ensure_ascii=False, indent=2)
     patched = list(messages)
-    last = patched[-1]
-    if hasattr(last, "content"):
-        from langchain_core.messages import HumanMessage
-        patched[-1] = HumanMessage(content=last.content + JSON_SUFFIX.format(schema=schema))
+    patched.append(HumanMessage(content=JSON_SUFFIX.format(schema=schema)))
 
     raw = "N/A"
     for attempt in range(_MAX_RETRIES + 1):

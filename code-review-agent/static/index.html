@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Code Reviewer</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ── Landing layout ───────────────────────────────────────── */
+    .landing {
+      min-height: calc(100vh - 57px - 53px);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 52px 24px 64px;
+    }
+
+    /* ── Hero ─────────────────────────────────────────────────── */
+    .hero { text-align: center; margin-bottom: 52px; }
+
+    .hero-tag {
+      display: inline-flex; align-items: center; gap: 7px;
+      font-size: 11.5px; font-weight: 600;
+      letter-spacing: .10em; text-transform: uppercase;
+      color: var(--accent); background: var(--accent-bg);
+      border: 1px solid rgba(212,92,36,.18);
+      border-radius: 20px; padding: 5px 13px;
+      margin-bottom: 24px;
+    }
+
+    .hero-title {
+      font-family: var(--font-serif);
+      font-size: 54px; font-weight: 400;
+      color: var(--text); line-height: 1.08;
+      letter-spacing: -.025em; margin-bottom: 18px;
+    }
+    .hero-title em {
+      font-style: italic; color: var(--accent);
+    }
+
+    .hero-desc {
+      font-size: 15.5px; color: var(--text-2);
+      line-height: 1.65; max-width: 420px; margin: 0 auto;
+    }
+
+    /* ── Choice grid ──────────────────────────────────────────── */
+    .choice-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 20px; width: 100%; max-width: 840px;
+    }
+
+    .choice-card {
+      position: relative; overflow: hidden;
+      background: var(--white);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r-xl);
+      padding: 36px 32px 32px;
+      display: flex; flex-direction: column;
+      cursor: pointer; text-decoration: none;
+      box-shadow: var(--s-sm);
+      transition: transform var(--t-lg), box-shadow var(--t-lg), border-color var(--t-lg);
+    }
+    .choice-card:hover {
+      transform: translateY(-5px);
+      box-shadow: var(--s-lg);
+      text-decoration: none;
+    }
+    .choice-card::after {
+      content: '';
+      position: absolute; inset: 0;
+      opacity: 0; transition: opacity var(--t-lg);
+      border-radius: inherit;
+      pointer-events: none;
+    }
+
+    /* Card A: upload — warm orange tint */
+    .card-a:hover { border-color: var(--accent); }
+    .card-a::after { background: linear-gradient(145deg, rgba(212,92,36,.05), transparent 55%); }
+    .card-a:hover::after { opacity: 1; }
+
+    /* Card B: developer — warm blue tint */
+    .card-b:hover { border-color: #93C5FD; }
+    .card-b::after { background: linear-gradient(145deg, rgba(30,64,175,.04), transparent 55%); }
+    .card-b:hover::after { opacity: 1; }
+
+    /* ── Card inner ───────────────────────────────────────────── */
+    .card-badge { margin-bottom: 22px; width: fit-content; }
+
+    .card-icon {
+      width: 48px; height: 48px;
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; margin-bottom: 18px;
+      flex-shrink: 0;
+    }
+    .icon-a { background: var(--accent-bg); }
+    .icon-b { background: var(--blue-bg); }
+
+    .card-title {
+      font-size: 19px; font-weight: 600; color: var(--text);
+      letter-spacing: -.01em; margin-bottom: 10px;
+    }
+
+    .card-desc {
+      font-size: 13.5px; color: var(--text-2);
+      line-height: 1.65; margin-bottom: 22px; flex: 1;
+    }
+
+    .card-features {
+      display: flex; flex-direction: column; gap: 7px;
+      margin-bottom: 26px;
+    }
+    .card-feature {
+      display: flex; align-items: flex-start; gap: 8px;
+      font-size: 12.5px; color: var(--text-2);
+    }
+    .feat-icon { flex-shrink: 0; margin-top: 1px; }
+    .feat-a    { color: var(--accent); }
+    .feat-b    { color: var(--blue); }
+
+    .card-cta {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; font-weight: 600;
+      transition: gap var(--t-lg);
+    }
+    .choice-card:hover .card-cta { gap: 10px; }
+    .cta-a { color: var(--accent); }
+    .cta-b { color: var(--blue); }
+
+    /* ── Divider ──────────────────────────────────────────────── */
+    .or-divider {
+      display: flex; align-items: center; gap: 16px;
+      width: 100%; max-width: 840px;
+      font-size: 12px; color: var(--text-3);
+      margin: 18px 0;
+    }
+    .or-divider::before, .or-divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    /* ── Responsive ───────────────────────────────────────────── */
+    @media (max-width: 660px) {
+      .hero-title  { font-size: 36px; }
+      .choice-grid { grid-template-columns: 1fr; }
+      .landing     { padding: 36px 16px 48px; justify-content: flex-start; }
+      .choice-card { padding: 28px 24px; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="logo" href="/">
+      <div class="logo-mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1.5L9 5H12L9.5 7.5L10.5 11L7 9L3.5 11L4.5 7.5L2 5H5L7 1.5Z" fill="white"/>
+        </svg>
+      </div>
+      <span class="logo-name">AI Code Reviewer</span>
+    </a>
+  </div>
+</header>
+
+<div class="landing page-fade">
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-tag">
+      <span>◆</span> 5 Agent 并行 · LangGraph · Multi-Agent
+    </div>
+    <h1 class="hero-title">
+      智能<em>代码</em>审查
+    </h1>
+    <p class="hero-desc">
+      安全漏洞扫描 + 代码质量分析<br>
+      多 Agent 并行工作，输出结构化审查报告
+    </p>
+  </div>
+
+  <!-- Cards -->
+  <div class="choice-grid">
+
+    <!-- Card A: Upload -->
+    <a class="choice-card card-a" href="upload.html">
+      <div class="card-badge">
+        <span class="badge badge-green">✦ 无需 Git 仓库</span>
+      </div>
+
+      <div class="card-icon icon-a">📂</div>
+
+      <div class="card-title">直接上传代码文件</div>
+      <p class="card-desc">
+        没有 Git 仓库？把源码文件直接上传，
+        立即获得安全漏洞与代码质量分析报告，无需任何配置。
+      </p>
+
+      <div class="card-features">
+        <div class="card-feature">
+          <span class="feat-icon feat-a">✓</span>
+          上传 .py .java .js .go 等 30+ 语言
+        </div>
+        <div class="card-feature">
+          <span class="feat-icon feat-a">✓</span>
+          支持多文件同时上传，拖拽即可
+        </div>
+        <div class="card-feature">
+          <span class="feat-icon feat-a">✓</span>
+          无需 GitHub 账号，无需代码基础
+        </div>
+      </div>
+
+      <div class="card-cta cta-a">
+        上传文件，开始审查 <span>→</span>
+      </div>
+    </a>
+
+    <!-- Card B: Developer -->
+    <a class="choice-card card-b" href="review.html">
+      <div class="card-badge">
+        <span class="badge badge-neutral">◈ 需要一定代码基础</span>
+      </div>
+
+      <div class="card-icon icon-b">🔗</div>
+
+      <div class="card-title">GitHub PR / Diff 审查</div>
+      <p class="card-desc">
+        已有 GitHub Pull Request 或 diff 文件？
+        获取结合代码上下文的深度审查报告，适合有 Git 工作流的开发者。
+      </p>
+
+      <div class="card-features">
+        <div class="card-feature">
+          <span class="feat-icon feat-b">✓</span>
+          GitHub PR URL 自动获取 diff
+        </div>
+        <div class="card-feature">
+          <span class="feat-icon feat-b">✓</span>
+          支持粘贴 git diff 文本
+        </div>
+        <div class="card-feature">
+          <span class="feat-icon feat-b">✓</span>
+          支持 GitLab / Gitea 等平台
+        </div>
+      </div>
+
+      <div class="card-cta cta-b">
+        进入 PR 审查 <span>→</span>
+      </div>
+    </a>
+
+  </div>
+
+</div>
+
+<footer class="site-footer">
+  由 <a href="https://github.com/langchain-ai/langgraph" target="_blank">LangGraph</a> 驱动 &middot;
+  SecurityReviewer + QualityReviewer + ReportGenerator 并行分析
+</footer>
+
+</body>
+</html>

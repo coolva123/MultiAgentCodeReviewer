@@ -550,93 +550,217 @@
   TODO-TRIGGER-02：FastAPI Web 服务 + 前端 UI（需要服务器部署）
   ─────────────────────────────────────────────────────────────────────────────
 
-  目标：把命令行工具包装成 HTTP API，配套一个简单前端页面，
-        让不熟悉命令行的用户也能使用，支持 PR URL 输入和 diff 文本粘贴两种模式。
+  目标：把命令行工具包装成 HTTP API + Web UI，覆盖不熟悉 git 的非程序员用户。
+        在原有 PR URL / diff 粘贴两种模式基础上，新增「直接上传代码文件」模式，
+        彻底脱离 git 依赖，让任何人都能对单个或多个文件发起代码审查。
 
-  技术选型：
-    后端：FastAPI + uvicorn
-    任务队列：BackgroundTasks（轻量）或 Celery + Redis（生产级）
-    前端：单页 HTML（无需 React/Vue，够用）或 Vue 3（更好的体验）
+  背景分析：
+    当前系统仅支持 git 操作者（需要 PR 流程）。扩展使用场景需要：
+      - 非程序员/学生：只有代码文件，不懂 git
+      - 代码片段快速审查：不想走完整 PR 流程
+      - 企业内网场景：不依赖 GitHub，直接上传文件
 
-  后端实现要点：
+    核心突破：semgrep_scan / ruff_check / ast_analyze 工具均接受
+    source_code: str 参数，不依赖 diff，可直接对任意文件内容进行扫描。
+    文件上传模式跳过 DiffAnalyzer 和 Coordinator，直接进入工具扫描 + LLM 分析。
 
-  Step 1 — 新建 server.py（与 main.py 同级）
+  ─────────────────────────────────────────────────────────────────────────────
+  三种输入模式对比
+  ─────────────────────────────────────────────────────────────────────────────
 
-    接口设计：
-      POST /api/review        → 提交审查任务，返回 session_id
-      GET  /api/review/{id}   → 轮询任务状态和结果
-      GET  /api/health        → 健康检查
+  模式 A — GitHub PR URL（面向有 GitHub PR 流程的开发者）
+    输入：{ "pr_url": "https://github.com/owner/repo/pull/123" }
+    流程：完整 5 节点 Graph（DiffAnalyzer → Coordinator → Security + Quality → Report）
+    优点：结合 PR 上下文，报告最完整
 
-    请求体（两种模式，二选一）：
-      模式 A — GitHub PR URL（主流）：
-        { "pr_url": "https://github.com/owner/repo/pull/123" }
-      模式 B — 直接粘贴 diff 文本（离线/本地）：
-        { "diff_content": "diff --git a/...", "repo_name": "my-project" }
+  模式 B — 粘贴 diff 文本（面向有 git 但不用 GitHub 的开发者）
+    输入：{ "diff_content": "diff --git a/...", "repo_name": "my-project" }
+    流程：完整 5 节点 Graph（与模式 A 相同，只是 diff 来源不同）
+    优点：支持 GitLab / Gitea / 本地 git diff 输出
 
-    响应体：
-      { "session_id": "uuid", "status": "queued|running|done|error", "report": "..." }
+  模式 C — 直接上传代码文件（面向非 git 用户）【新增】
+    输入：multipart/form-data，上传 1 个或多个源码文件
+    流程：跳过 DiffAnalyzer + Coordinator，直接：
+            文件内容 → SecurityReviewer（semgrep_scan + scan_secrets）
+                     → QualityReviewer（ast_analyze + ruff_check + semgrep_scan）
+                     → ReportGenerator
+    实现要点：
+      - 把每个上传文件的内容读取为字符串，伪造成 diff_files 格式：
+          diff_files = [
+            {
+              "filename": "auth.py",
+              "patch": file_content,       # 全部内容视为"新增"
+              "change_type": "added",
+              "change_category": "upload",
+              "is_complex_logic": False,
+            }
+          ]
+      - routing_decision 写死：{ "run_security": True, "run_quality": True,
+                                 "priority": "high", "focus_files": [所有文件名] }
+      - 直接从 security_reviewer_node / quality_reviewer_node 开始执行，
+        跳过 diff_analyzer_node 和 coordinator_node
 
-    核心逻辑（复用现有代码）：
-      from src.graph.graph import review_graph
-      # 组装 initial_state，调用 review_graph.invoke(initial_state, config)
-      # 取 result["final_report"] 返回
+  ─────────────────────────────────────────────────────────────────────────────
+  后端实现
+  ─────────────────────────────────────────────────────────────────────────────
 
-    注意：审查耗时 1-3 分钟，必须用异步 + 轮询，不能同步等待响应
+  新建文件：code-review-agent/server.py（与 main.py 同级）
 
-  Step 2 — 前端 UI 设计（两个 Tab）
+  API 设计：
+    POST /api/review            → 提交审查任务（模式 A / B），返回 session_id
+    POST /api/review/upload     → 提交文件上传审查（模式 C），返回 session_id
+    GET  /api/review/{id}       → 轮询任务状态和结果
+    GET  /api/review/{id}/stream → SSE 实时推送日志（可选增强）
+    GET  /api/health            → 健康检查
 
-    Tab 1：GitHub PR URL 模式
-      ┌─────────────────────────────────────────────┐
-      │ 🔍 AI Code Reviewer                          │
-      ├─────────────────────────────────────────────┤
-      │ [Tab: PR URL] [Tab: Paste Diff]              │
-      ├─────────────────────────────────────────────┤
-      │ GitHub PR URL:                               │
-      │ [ https://github.com/owner/repo/pull/123 ]  │
-      │                                              │
-      │           [ 开始审查 ]                        │
-      └─────────────────────────────────────────────┘
+  请求/响应结构：
+    POST /api/review 请求体：
+      {
+        "mode": "pr_url" | "diff_text",
+        "pr_url": "https://github.com/...",       // mode=pr_url 时必填
+        "diff_content": "diff --git ...",          // mode=diff_text 时必填
+        "repo_name": "my-org/my-repo"             // mode=diff_text 时必填
+      }
 
-    Tab 2：粘贴 diff 文本模式
-      ┌─────────────────────────────────────────────┐
-      │ [Tab: PR URL] [Tab: Paste Diff]              │
-      ├─────────────────────────────────────────────┤
-      │ 仓库名：[ my-org/my-repo          ]          │
-      │                                              │
-      │ Diff 内容（粘贴 git diff 输出）：            │
-      │ ┌─────────────────────────────────────────┐  │
-      │ │ diff --git a/app.py b/app.py            │  │
-      │ │ ...                                     │  │
-      │ └─────────────────────────────────────────┘  │
-      │                                              │
-      │           [ 开始审查 ]                        │
-      └─────────────────────────────────────────────┘
+    POST /api/review/upload 请求体：
+      multipart/form-data
+        files: File[]     → 上传的源码文件（支持多文件）
+        repo_name: str    → 项目名称（可选，默认"uploaded-project"）
 
-    审查中状态：
-      显示进度动画 + 实时日志（通过 SSE 或 WebSocket 推送）
-      预计耗时提示："通常需要 1-3 分钟"
+    GET /api/review/{id} 响应：
+      {
+        "session_id": "uuid",
+        "status": "queued | running | done | error",
+        "progress": "正在分析安全漏洞...",      // 当前阶段文字
+        "report": "# Code Review Report...",   // status=done 时返回
+        "error": "..."                          // status=error 时返回
+      }
 
-    结果展示：
-      渲染 Markdown 报告（可用 marked.js 直接在浏览器渲染）
-      提供"下载 .md"按钮
+  任务存储（内存 dict，单进程够用）：
+    _tasks: dict[str, dict] = {}
+    key = session_id, value = { status, report, progress, created_at }
 
-  Step 3 — 启动命令
-    uvicorn server:app --host 0.0.0.0 --port 8000
+  注意：
+    - 审查耗时 1-3 分钟，POST 立即返回 session_id，前端轮询 GET 获取结果
+    - 并发审查任务用 asyncio.to_thread() 在线程池中运行同步的 review_graph.invoke()
+    - 模式 C 需要新建 code-review-agent/src/graph/file_review_graph.py，
+      构建跳过前两个节点的简化 Graph：
+        START → security_reviewer → quality_reviewer → report_generator → END
 
-  Step 4 — 可选：部署到云服务
+  ─────────────────────────────────────────────────────────────────────────────
+  前端实现
+  ─────────────────────────────────────────────────────────────────────────────
+
+  新建文件：code-review-agent/static/index.html（单页 HTML，无需构建工具）
+
+  界面布局（三个 Tab）：
+
+    Tab 1：PR URL 模式
+      ┌─────────────────────────────────────────────────┐
+      │ 🔍 AI Code Reviewer                              │
+      ├─────────────────────────────────────────────────┤
+      │ [PR URL] [粘贴 Diff] [上传文件]                  │
+      ├─────────────────────────────────────────────────┤
+      │ GitHub PR URL:                                   │
+      │ [ https://github.com/owner/repo/pull/123      ] │
+      │                                                  │
+      │                  [ 开始审查 ]                     │
+      └─────────────────────────────────────────────────┘
+
+    Tab 2：粘贴 Diff 模式
+      ┌─────────────────────────────────────────────────┐
+      │ [PR URL] [粘贴 Diff] [上传文件]                  │
+      ├─────────────────────────────────────────────────┤
+      │ 项目名称：[ my-org/my-repo                     ] │
+      │ Diff 内容（粘贴 git diff 输出）：                │
+      │ ┌─────────────────────────────────────────────┐  │
+      │ │ diff --git a/app.py b/app.py                │  │
+      │ └─────────────────────────────────────────────┘  │
+      │                  [ 开始审查 ]                     │
+      └─────────────────────────────────────────────────┘
+
+    Tab 3：上传文件模式（新增，面向非 git 用户）
+      ┌─────────────────────────────────────────────────┐
+      │ [PR URL] [粘贴 Diff] [上传文件]                  │
+      ├─────────────────────────────────────────────────┤
+      │ 项目名称（可选）：[ my-project                 ] │
+      │                                                  │
+      │ ┌─────────────────────────────────────────────┐  │
+      │ │  📁 拖拽文件到此处，或点击选择               │  │
+      │ │                                              │  │
+      │ │  支持：.py .java .js .ts .go .rb .php 等    │  │
+      │ └─────────────────────────────────────────────┘  │
+      │  已选择：auth.py  utils.py  controller.java      │
+      │                                                  │
+      │                  [ 开始审查 ]                     │
+      └─────────────────────────────────────────────────┘
+
+    审查进行中（所有模式共用）：
+      ┌─────────────────────────────────────────────────┐
+      │  ⏳ 正在审查...（通常需要 1-3 分钟）             │
+      │                                                  │
+      │  ✅ 获取代码内容                                  │
+      │  ✅ 解析文件结构                                  │
+      │  🔄 安全漏洞扫描中...                             │
+      │  ⬜ 代码质量分析                                  │
+      │  ⬜ 生成报告                                      │
+      └─────────────────────────────────────────────────┘
+
+    审查结果：
+      - 用 marked.js 渲染 Markdown 报告
+      - 提供「下载 .md」和「复制到剪贴板」按钮
+      - 显示工具调用记录（可折叠）
+
+  前端技术：纯 HTML + Vanilla JS + marked.js（CDN 引入，无需构建工具）
+  FastAPI 用 StaticFiles 挂载 static/ 目录提供前端文件
+
+  ─────────────────────────────────────────────────────────────────────────────
+  新增文件清单
+  ─────────────────────────────────────────────────────────────────────────────
+
+  code-review-agent/
+  ├── server.py                           ← FastAPI 入口，三种模式 API
+  ├── static/
+  │   └── index.html                      ← 单页前端（三 Tab 布局）
+  └── src/
+      └── graph/
+          └── file_review_graph.py        ← 模式 C 专用简化 Graph
+
+  ─────────────────────────────────────────────────────────────────────────────
+  依赖新增（requirements.txt）
+  ─────────────────────────────────────────────────────────────────────────────
+
+  fastapi>=0.110.0
+  uvicorn[standard]>=0.29.0
+  python-multipart>=0.0.9   ← 文件上传支持
+
+  ─────────────────────────────────────────────────────────────────────────────
+  启动与部署
+  ─────────────────────────────────────────────────────────────────────────────
+
+  本地启动：
+    cd code-review-agent
+    uvicorn server:app --host 0.0.0.0 --port 8080 --reload
+
+  访问地址：http://localhost:8080
+
+  云端部署（可选）：
     Railway / Render / Fly.io 均支持一键部署 FastAPI 应用
-    需要注意：长期记忆的 pgvector 需要使用云端 PostgreSQL（如 Supabase）
+    长期记忆的 pgvector 改用云端 PostgreSQL（如 Supabase 免费套餐）
 
-  两种触发方式对比：
+  ─────────────────────────────────────────────────────────────────────────────
+  三种触发方式最终对比
+  ─────────────────────────────────────────────────────────────────────────────
+
   ┌─────────────────┬──────────────────────┬──────────────────────────┐
   │                 │ GitHub Actions       │ FastAPI Web 服务         │
   ├─────────────────┼──────────────────────┼──────────────────────────┤
   │ 部署成本        │ 零（GitHub 托管）    │ 需要服务器或云平台       │
   │ 触发方式        │ PR 事件自动触发      │ 用户主动访问页面         │
-  │ 用户体验        │ 在 GitHub 看报告     │ 独立 Web UI              │
+  │ 用户群体        │ 懂 git 的开发者      │ 所有人（含不懂 git）     │
+  │ 输入方式        │ PR URL 自动获取      │ PR URL / diff / 上传文件 │
   │ 适合场景        │ 已有 GitHub PR 流程  │ 对外开放的审查平台       │
   │ 实现难度        │ 低（只加 yml 文件）  │ 中（后端 + 前端）        │
   └─────────────────┴──────────────────────┴──────────────────────────┘
 
-  推荐顺序：先实现 TODO-TRIGGER-01（GitHub Actions），成本极低且效果直接；
-            TODO-TRIGGER-02 在想对外开放或做 Demo 平台时再实现。
+  推荐顺序：TODO-TRIGGER-01 已完成；TODO-TRIGGER-02 在需要对外开放时实现。

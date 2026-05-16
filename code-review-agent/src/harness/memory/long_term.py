@@ -18,8 +18,6 @@ from contextlib import contextmanager
 from typing import Optional
 
 import numpy as np
-import psycopg2
-from pgvector.psycopg2 import register_vector
 
 from config.settings import PG_DATABASE_URL, PG_EMBEDDING_DIM
 
@@ -63,6 +61,8 @@ class LongTermMemory:
     @contextmanager
     def _connection(self):
         """上下文管理器：打开独立连接，用完自动关闭。"""
+        import psycopg2
+        from pgvector.psycopg2 import register_vector
         conn = psycopg2.connect(PG_DATABASE_URL)
         register_vector(conn)
         try:

@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>上传文件审查 · AI Code Reviewer</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/base16/one-light.min.css" />
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="logo" href="/">
+      <div class="logo-mark">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M7 1.5L9 5H12L9.5 7.5L10.5 11L7 9L3.5 11L4.5 7.5L2 5H5L7 1.5Z" fill="white"/>
+        </svg>
+      </div>
+      <span class="logo-name">AI Code Reviewer</span>
+    </a>
+    <div class="header-sep"></div>
+    <a class="back-link" href="/">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path d="M9 2.5L4.5 7L9 11.5" stroke="currentColor" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      返回
+    </a>
+  </div>
+</header>
+
+<div class="page-body page-fade">
+  <div class="container" style="max-width:680px">
+
+    <!-- Page header -->
+    <div style="margin-bottom:28px">
+      <span class="badge badge-green" style="margin-bottom:12px;display:inline-flex">✦ 无需 Git 仓库</span>
+      <h1 style="font-family:var(--font-serif);font-size:28px;font-weight:400;
+                 color:var(--text);margin-bottom:8px;letter-spacing:-.02em">
+        上传代码文件审查
+      </h1>
+      <p style="font-size:14px;color:var(--text-2)">
+        直接上传源码文件，AI 将对安全漏洞和代码质量进行全面分析，无需 Git 或 GitHub 账号
+      </p>
+    </div>
+
+    <!-- Form card -->
+    <div class="card" id="form-card">
+      <div class="card-body">
+
+        <div class="field">
+          <label class="label" for="repo-name">项目名称（可选）</label>
+          <input id="repo-name" class="input" type="text"
+                 placeholder="my-project" autocomplete="off" />
+        </div>
+
+        <div class="field">
+          <label class="label">选择源码文件</label>
+          <div class="drop-zone" id="drop-zone">
+            <input type="file" id="file-input" multiple
+              accept=".py,.java,.js,.ts,.jsx,.tsx,.go,.rb,.php,.c,.cpp,.h,.cs,.rs,.kt,.swift,.scala,.vue,.sh,.bash,.yaml,.yml,.json,.xml,.html,.css,.sass,.scss" />
+            <span class="drop-icon">📂</span>
+            <div class="drop-title">拖拽文件到此处，或点击选择</div>
+            <div class="drop-sub">
+              支持 <code>.py .java .js .ts .go .rb .php</code> 等 30+ 语言
+            </div>
+          </div>
+          <div class="file-list" id="file-list"></div>
+        </div>
+
+        <div class="error-msg" id="error-msg"></div>
+
+        <button class="btn btn-accent btn-full" id="btn-submit" disabled
+                style="margin-top:8px">
+          开始审查
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap" id="progress-wrap">
+      <div class="prog-track">
+        <div class="prog-fill" id="prog-fill"></div>
+      </div>
+      <div class="prog-title">审查进行中</div>
+      <div class="prog-sub">
+        通常需要 1–3 分钟 &nbsp;·&nbsp; 已用时 <span class="elapsed" id="elapsed">0s</span>
+      </div>
+      <div class="steps" id="steps"></div>
+    </div>
+
+    <!-- Results -->
+    <div class="result-wrap" id="result-wrap">
+      <div class="result-bar">
+        <div class="result-bar-title">
+          审查报告
+          <span class="badge badge-green" id="badge-sec">0 安全</span>
+          <span class="badge badge-blue"  id="badge-qual">0 质量</span>
+        </div>
+        <div class="result-actions">
+          <button class="btn-sm" id="btn-copy">复制</button>
+          <button class="btn-sm" id="btn-dl">下载 .md</button>
+          <a class="btn btn-ghost" href="/" style="padding:6px 12px;font-size:12px">新建审查</a>
+        </div>
+      </div>
+      <div class="result-body">
+        <div class="md" id="report-body"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<footer class="site-footer">
+  AI Code Reviewer &middot; 由 LangGraph 驱动
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="app.js"></script>
+<script>
+const mgr       = new ReviewManager('upload');
+let   files     = [];
+const dropZone  = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const fileList  = document.getElementById('file-list');
+const btnSubmit = document.getElementById('btn-submit');
+
+// ── Drag & drop ──────────────────────────────────────────────────
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('over'); });
+dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('over');
+  push([...e.dataTransfer.files]);
+});
+fileInput.addEventListener('change', () => {
+  push([...fileInput.files]);
+  fileInput.value = '';
+});
+
+function push(newFiles) {
+  newFiles.forEach(f => { if (!files.find(x => x.name === f.name)) files.push(f); });
+  render();
+}
+function drop(name) {
+  files = files.filter(f => f.name !== name);
+  render();
+}
+
+const EXT_ICON = {
+  py:'🐍', java:'☕', js:'🟨', ts:'🔷', jsx:'⚛', tsx:'⚛',
+  go:'🐹', rb:'💎', php:'🐘', cs:'🔵', rs:'🦀', kt:'🟣',
+  swift:'🧡', vue:'💚', sh:'📜', bash:'📜',
+  yaml:'📄', yml:'📄', json:'📋', xml:'📰',
+  html:'🌐', css:'🎨', c:'⚙', cpp:'⚙', h:'⚙',
+};
+function icon(name) { return EXT_ICON[name.split('.').pop().toLowerCase()] || '📄'; }
+
+function render() {
+  fileList.innerHTML = files.map(f => `
+    <div class="chip">
+      <span>${icon(f.name)}</span>
+      <span>${f.name}</span>
+      <button class="chip-rm" onclick="drop('${f.name.replace(/'/g,"\\'")}')">×</button>
+    </div>`).join('');
+  btnSubmit.disabled = files.length === 0;
+}
+
+// ── Submit ───────────────────────────────────────────────────────
+btnSubmit.addEventListener('click', async () => {
+  mgr.hideError();
+  if (files.length === 0) return;
+
+  const repo = document.getElementById('repo-name').value.trim() || 'uploaded-project';
+  document.getElementById('form-card').style.display = 'none';
+  mgr.showProgress();
+
+  const form = new FormData();
+  files.forEach(f => form.append('files', f));
+  form.append('repo_name', repo);
+
+  try {
+    const data = await apiPostForm('/api/review/upload', form);
+    mgr.startPolling(data.session_id);
+  } catch (e) {
+    document.getElementById('form-card').style.display = 'block';
+    mgr.progressWrap.classList.remove('on');
+    mgr.showError(e.message);
+  }
+});
+
+// ── Actions ──────────────────────────────────────────────────────
+document.getElementById('btn-copy').addEventListener('click', function () { mgr.copyReport(this); });
+document.getElementById('btn-dl').addEventListener('click', () => mgr.downloadReport());
+</script>
+</body>
+</html>

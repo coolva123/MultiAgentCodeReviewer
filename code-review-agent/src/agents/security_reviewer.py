@@ -9,7 +9,7 @@ Agent loop:
   1. 查询长期记忆，将同仓库历史 findings 注入 Prompt 作为额外上下文
   2. LLM with bound tools 决定调用哪些工具
   3. 所有工具调用经由 Tool Guard 路由（风险分级 + HITL）
-  4. 工具结果喂回对话；构建"干净消息"避免 DeepSeek reasoning_content 问题
+  4. 工具结果喂回对话
   5. call_structured 提取结构化 findings
   Fallback: 静态运行本地工具 → LLM 分析。
 """
@@ -26,7 +26,7 @@ from src.graph.state import ReviewIssue, ReviewState, ToolCallRecord
 from src.harness.memory.long_term import get_long_term_memory
 from src.harness.tool_guard import guarded_call
 from src.tools.code_analysis import scan_secrets, semgrep_scan
-from src.tools.llm_utils import call_structured
+from src.tools.llm_utils import call_structured, strip_reasoning
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +61,6 @@ def _get_security_tools() -> tuple[list, dict]:
     tools = [semgrep_scan, scan_secrets]
     logger.info("[SecurityReviewer] 使用本地工具（MCP 不可用）")
     return tools, {t.name: t for t in tools}
-
-_MAX_AGENT_ITERATIONS = 4
-_MAX_PATCH_CHARS = 2000
 
 
 # ── Pydantic output schema ─────────────────────────────────────────────────────
@@ -194,11 +191,9 @@ def _agent_loop(
     human_msg = HumanMessage(content=human_content)
     messages = [system_msg, human_msg]
 
-    tool_results_summary: list[str] = []
-
     for iteration in range(_MAX_AGENT_ITERATIONS):
         try:
-            response = llm_with_tools.invoke(messages)
+            response = llm_with_tools.invoke(strip_reasoning(messages))
         except Exception as exc:
             logger.debug("[SecurityReviewer] Loop LLM call failed at iteration %d: %s", iteration, exc)
             break
@@ -216,30 +211,13 @@ def _agent_loop(
             else:
                 raw, record = guarded_call(tool_fn, tc["name"], tc["args"])
                 tool_records.append(record)
-                if raw is None:
-                    tool_result = json.dumps({"error": "tool rejected or failed"})
-                else:
-                    tool_result = str(raw)
+                tool_result = str(raw) if raw is not None else json.dumps({"error": "tool rejected or failed"})
 
-            tool_results_summary.append(f"[{tc['name']}] {tool_result[:600]}")
             messages.append(ToolMessage(content=tool_result, tool_call_id=tc["id"]))
     else:
         logger.warning("[SecurityReviewer] Reached max agent iterations (%d)", _MAX_AGENT_ITERATIONS)
 
-    if tool_results_summary:
-        tools_block = "\n\n".join(tool_results_summary)
-        clean_messages = [
-            system_msg,
-            HumanMessage(content=(
-                human_msg.content
-                + f"\n\n=== TOOL RESULTS ===\n{tools_block}\n\n"
-                "Now synthesize all findings into the required structured JSON."
-            )),
-        ]
-    else:
-        clean_messages = messages
-
-    return call_structured(llm, clean_messages, _SecurityFindings)
+    return call_structured(llm, messages, _SecurityFindings)
 
 
 # ── Fallback: static tools → LLM ──────────────────────────────────────────────

@@ -29,6 +29,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # GitHub
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
 
+# Tavily Search（Research Agent）
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")
+
 # PostgreSQL + pgvector（长期记忆）
 PG_DATABASE_URL = os.getenv(
     "PG_DATABASE_URL",

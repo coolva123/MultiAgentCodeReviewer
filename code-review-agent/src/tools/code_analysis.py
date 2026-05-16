@@ -65,9 +65,9 @@ def _extract_added_lines(patch: str) -> list[tuple[int, str]]:
 @tool
 def bandit_scan(source_code: str, filename: str) -> str:
     """
-    Run the bandit security scanner on Python source code extracted from a diff.
-    Returns a JSON string with a list of security issues and severity levels.
-    Only effective for .py files; returns empty list for other file types.
+    对从 diff 中提取的 Python 源码运行 bandit 安全扫描器。
+    返回包含安全问题列表和严重等级的 JSON 字符串。
+    仅对 .py 文件有效，其他文件类型返回空列表。
     """
     if not filename.endswith(".py"):
         return json.dumps({"issues": [], "note": "bandit only supports Python files"})
@@ -110,9 +110,9 @@ def bandit_scan(source_code: str, filename: str) -> str:
 @tool
 def scan_secrets(patch: str) -> str:
     """
-    Scan a unified diff patch for hardcoded secrets, API keys, passwords, and credentials.
-    Checks only added lines (+) using known regex patterns.
-    Returns a JSON string listing each detected secret with line number and pattern type.
+    扫描 unified diff patch 中的硬编码密钥、API Key、密码和凭据。
+    仅检查新增行（以 + 开头），使用已知正则模式匹配。
+    返回 JSON 字符串，列出每个检测到的密钥及其行号和模式类型。
     """
     added = _extract_added_lines(patch)
     findings: list[dict] = []
@@ -134,9 +134,9 @@ def scan_secrets(patch: str) -> str:
 @tool
 def scan_sql_injection(patch: str) -> str:
     """
-    Scan a unified diff patch for common SQL injection vulnerability patterns such as
-    f-string SQL construction, string concatenation in execute(), and format() calls.
-    Returns a JSON string of potential SQL injection risks with line numbers.
+    扫描 unified diff patch 中常见的 SQL 注入漏洞模式，包括 f-string 拼接 SQL、
+    execute() 中的字符串拼接以及 format() 调用。
+    返回包含潜在 SQL 注入风险和行号的 JSON 字符串。
     """
     added = _extract_added_lines(patch)
     findings: list[dict] = []
@@ -162,11 +162,9 @@ def scan_sql_injection(patch: str) -> str:
 @tool
 def ast_analyze(source_code: str, filename: str) -> str:
     """
-    Analyze Python source code using the AST module to extract quality metrics:
-    function count, per-function cyclomatic complexity estimate, function length in lines,
-    and maximum control-flow nesting depth. Returns a JSON string with per-function
-    metrics and a list of functions that exceed quality thresholds.
-    Only effective for .py files.
+    使用 AST 模块分析 Python 源码，提取质量指标：函数数量、每个函数的圈复杂度估算、
+    函数行数以及最大控制流嵌套深度。返回 JSON 字符串，包含每个函数的指标
+    以及超出质量阈值的函数列表。仅对 .py 文件有效。
     """
     if not filename.endswith(".py"):
         return json.dumps({"metrics": {}, "note": "AST analysis only supports Python files"})
@@ -237,16 +235,16 @@ def _max_nesting_depth(node: ast.AST, depth: int = 0) -> int:
 @tool
 def semgrep_scan(source_code: str, filename: str, config: str = "p/security") -> str:
     """
-    Run Semgrep static analysis on source code. Supports 30+ languages including
-    Python, Java, Go, JavaScript, TypeScript, Ruby, C/C++, and Kotlin.
+    对源码运行 Semgrep 静态分析。支持 30+ 种语言，包括 Python、Java、Go、
+    JavaScript、TypeScript、Ruby、C/C++ 和 Kotlin。
 
-    config options:
-      - "p/security"       : OWASP Top 10, injection, auth flaws (SecurityReviewer)
-      - "p/maintainability": code smells, complexity, dead code (QualityReviewer)
-      - "p/python"         : Python-specific best practices (QualityReviewer supplement)
-      - "auto"             : auto-select rules based on file type
+    config 选项：
+      - "p/security"       : OWASP Top 10、注入、认证缺陷（供 SecurityReviewer 使用）
+      - "p/maintainability": 代码异味、复杂度、死代码（供 QualityReviewer 使用）
+      - "p/python"         : Python 专属最佳实践（QualityReviewer 补充规则）
+      - "auto"             : 根据文件类型自动选择规则
 
-    Returns JSON with findings list and total count.
+    返回包含 findings 列表和总数的 JSON 字符串。
     """
     suffix = Path(filename).suffix or ".txt"
     with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False, encoding="utf-8") as tmp:
@@ -287,9 +285,8 @@ def semgrep_scan(source_code: str, filename: str, config: str = "p/security") ->
 @tool
 def ruff_check(source_code: str, filename: str) -> str:
     """
-    Run Ruff linter on Python source code. Covers 500+ rules including naming
-    conventions, unused imports, error handling patterns, and type annotation
-    best practices. Only effective for .py files.
+    对 Python 源码运行 Ruff linter。覆盖 500+ 条规则，包括命名规范、
+    未使用导入、错误处理模式和类型注解最佳实践。仅对 .py 文件有效。
     """
     if not filename.endswith(".py"):
         return json.dumps({"issues": [], "note": "ruff only supports Python files"})

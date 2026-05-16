@@ -1,5 +1,6 @@
 import operator
-from typing import Annotated, Any, Dict, List, NotRequired, Optional, TypedDict
+from typing import Annotated, Any, Dict, List, NotRequired, Optional
+from typing_extensions import TypedDict
 
 
 class DiffFile(TypedDict):
@@ -41,17 +42,24 @@ class ReviewState(TypedDict):
     diff_content: str
     pr_metadata: Dict[str, Any]
     repo_name: str
+    repo_url: str                            # GitHub 仓库 URL（Research Agent 使用）
     session_id: str
 
     # ── Agent 输出（逐步填充） ────────────────────────────
     diff_files: List[DiffFile]
-    diff_summary: Dict[str, Any]            # DiffAnalyzer LLM 的整体摘要（Day 2）
+    diff_summary: Dict[str, Any]            # DiffAnalyzer LLM 的整体摘要
     routing_decision: Dict[str, Any]        # Coordinator 路由决策
 
     security_findings: Annotated[List[ReviewIssue], operator.add]
     quality_findings: Annotated[List[ReviewIssue], operator.add]
 
     final_report: Optional[str]
+
+    # ── Supervisor 多 Agent 控制 ──────────────────────────
+    research_context: str                   # Research Agent 累积输出
+    supervisor_instruction: str             # Supervisor 给下一个 Agent 的指令
+    iteration_count: int                    # Supervisor 循环计数（防止无限循环）
+    review_pipeline_called: bool            # Review 子图是否已被调用（与 findings 数量无关）
 
     # ── Harness 层 ────────────────────────────────────────
     tool_call_log: Annotated[List[ToolCallRecord], operator.add]
