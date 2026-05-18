@@ -18,27 +18,27 @@ MAX_PATCH_CHARS = 3000  # 单文件 patch 截断阈值，避免超出 token 限�
 # ── Pydantic 结构化输出模型 ────────────────────────────────────────────────────
 
 class FileSemanticInfo(BaseModel):
-    filename: str = Field(description="File path as it appears in the diff")
+    filename: str = Field(description="diff 中显示的文件路径")
     change_category: Literal["feature", "bugfix", "refactor", "config", "test", "docs", "security"] = Field(
-        description="Primary nature of this file's change"
+        description="该文件变更的主要类型"
     )
     is_security_sensitive: bool = Field(
-        description="True if this file touches auth, crypto, secrets, SQL, permissions, etc."
+        description="若该文件涉及认证、加密、密钥、SQL、权限等安全敏感内容，则为 true"
     )
     is_complex_logic: bool = Field(
-        description="True if the change introduces complex conditionals, recursion, or concurrency"
+        description="若该变更引入了复杂条件分支、递归或并发逻辑，则为 true"
     )
-    file_summary: str = Field(description="One-sentence description of what changed in this file")
+    file_summary: str = Field(description="用中文一句话描述该文件的变更意图")
 
 
 class DiffSemanticAnalysis(BaseModel):
-    files: list[FileSemanticInfo] = Field(description="Semantic info for each changed file")
-    overall_summary: str = Field(description="2-3 sentence summary of the entire PR's purpose")
+    files: list[FileSemanticInfo] = Field(description="每个变更文件的语义信息")
+    overall_summary: str = Field(description="用中文 2-3 句话概括整个 PR 的目的")
     pr_nature: Literal["feature", "bugfix", "refactor", "mixed"] = Field(
-        description="Overall nature of this PR"
+        description="本次 PR 的整体类型"
     )
     estimated_risk: Literal["high", "medium", "low"] = Field(
-        description="Overall risk level of merging this PR"
+        description="合并本次 PR 的整体风险等级"
     )
 
 

@@ -17,6 +17,10 @@ def route_after_coordinator(state: ReviewState) -> list[str]:
         targets.append("security_reviewer")
     if decision.get("run_quality", True):
         targets.append("quality_reviewer")
+    if decision.get("run_dependency", False):
+        targets.append("dependency_reviewer")
+    if decision.get("run_test_coverage", False):
+        targets.append("test_coverage_reviewer")
 
-    # 两者都不需要（纯文档/测试变更）时直接生成报告
+    # 全部跳过（纯文档变更）时直接生成报告
     return targets if targets else ["report_generator"]

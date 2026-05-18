@@ -85,12 +85,14 @@ def _generate_executive_summary(
 def report_generator_node(state: ReviewState) -> dict:
     logger.info("[ReportGenerator] 开始生成报告")
 
-    security_findings = state.get("security_findings", [])
-    quality_findings  = state.get("quality_findings", [])
-    diff_files        = state.get("diff_files", [])
-    pr_meta           = state.get("pr_metadata", {})
-    repo_name         = state.get("repo_name", "unknown")
-    tool_call_log     = state.get("tool_call_log", [])
+    security_findings     = state.get("security_findings", [])
+    quality_findings      = state.get("quality_findings", [])
+    dependency_findings   = state.get("dependency_findings", [])
+    test_coverage_findings = state.get("test_coverage_findings", [])
+    diff_files            = state.get("diff_files", [])
+    pr_meta               = state.get("pr_metadata", {})
+    repo_name             = state.get("repo_name", "unknown")
+    tool_call_log         = state.get("tool_call_log", [])
 
     # Step 1: LLM 生成执行摘要
     executive_summary = _generate_executive_summary(
@@ -106,13 +108,18 @@ def report_generator_node(state: ReviewState) -> dict:
         repo_name=repo_name,
         executive_summary=executive_summary,
         tool_call_log=tool_call_log,
+        dependency_findings=dependency_findings,
+        test_coverage_findings=test_coverage_findings,
     )
 
     msg = f"[ReportGenerator] 报告生成完成 ({len(report)} chars)"
     logger.info(msg)
 
     # Step 3: 写入长期记忆
-    all_findings = list(security_findings) + list(quality_findings)
+    all_findings = (
+        list(security_findings) + list(quality_findings)
+        + list(dependency_findings) + list(test_coverage_findings)
+    )
     if all_findings:
         try:
             stored = get_long_term_memory().store(repo_name=repo_name, findings=all_findings)

@@ -34,8 +34,20 @@ jobs:
       - name: Install dependencies
         run: pip install -r code-review-agent/requirements.txt
 
-      - name: Run AI Reviewer
-        working-directory: code-review-agent
+      # ── 方案 B：Action 级重试（最多 2 次，间隔 30s）──────────────────────
+      # 与 main.py 内部 3 次重试叠加：进程内暂态错误由 C 处理，
+      # 进程级崩溃（OOM、runner 异常）由 B 兜底，合计最多 6 次尝试。
+      - name: Run AI Reviewer (with retry)
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 20
+          max_attempts: 2
+          retry_wait_seconds: 30
+          retry_on: error
+          command: |
+            cd code-review-agent && python main.py \
+              --pr-url "${{ github.event.pull_request.html_url }}" \
+              --post-comment
         env:
           # ── 必填：LLM ──────────────────────────────────────────────
           LLM_PROVIDER: deepseek
@@ -54,8 +66,3 @@ jobs:
 
           # ── 可选：Semgrep MCP（不配置则降级到本地 semgrep）─────────
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
-
-        run: |
-          python main.py \
-            --pr-url "${{ github.event.pull_request.html_url }}" \
-            --post-comment

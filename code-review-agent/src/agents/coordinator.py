@@ -15,14 +15,19 @@ logger = logging.getLogger(__name__)
 
 # ── Pydantic 结构化输出模型 ────────────────────────────────────────────────────
 
+_DEP_FILENAMES = {"requirements.txt", "pyproject.toml", "package.json", "go.mod", "Pipfile"}
+
+
 class RoutingDecision(BaseModel):
-    run_security: bool = Field(description="Whether to activate the Security Reviewer")
-    run_security_reason: str = Field(description="One-sentence reason for the security decision")
-    run_quality: bool = Field(description="Whether to activate the Quality Reviewer")
-    run_quality_reason: str = Field(description="One-sentence reason for the quality decision")
-    priority: Literal["high", "medium", "low"] = Field(description="Overall review priority")
-    focus_files: list[str] = Field(description="Filenames that deserve the most attention (max 5)")
-    overall_assessment: str = Field(description="2-3 sentence coordinator assessment of this PR")
+    run_security: bool = Field(description="是否启动安全审查 Agent")
+    run_security_reason: str = Field(description="用中文一句话说明安全审查的决策原因")
+    run_quality: bool = Field(description="是否启动质量审查 Agent")
+    run_quality_reason: str = Field(description="用中文一句话说明质量审查的决策原因")
+    run_dependency: bool = Field(description="是否启动依赖安全审查 Agent（diff 含依赖文件变更时为 true）")
+    run_test_coverage: bool = Field(description="是否启动测试覆盖审查 Agent（有功能性代码变更且 PR 中测试文件较少时为 true）")
+    priority: Literal["high", "medium", "low"] = Field(description="本次审查的整体优先级")
+    focus_files: list[str] = Field(description="最值得重点关注的文件列表（最多 5 个）")
+    overall_assessment: str = Field(description="用中文 2-3 句话对本次 PR 做整体评估")
 
 
 # ── LLM 路由决策 ──────────────────────────────────────────────────────────────
@@ -81,40 +86,58 @@ def coordinator_node(state: ReviewState) -> dict:
 
     decision = _llm_routing(state)
 
+    # 静态判断：diff_files 是否含依赖文件变更（不依赖 LLM，始终准确）
+    diff_files = state.get("diff_files", [])
+    has_dep_changes = any(
+        any(dep in f["filename"] for dep in _DEP_FILENAMES)
+        for f in diff_files
+    )
+    test_files_in_pr = sum(1 for f in diff_files if "test" in f["filename"].lower())
+    has_business_changes = any(
+        f.get("change_category") in ("feature", "bugfix", "refactor", "security")
+        for f in diff_files
+    )
+
     if decision:
         routing_decision = {
-            "run_security": decision.run_security,
-            "run_quality": decision.run_quality,
-            "priority": decision.priority,
-            "focus_files": decision.focus_files,
-            "security_reason": decision.run_security_reason,
-            "quality_reason": decision.run_quality_reason,
+            "run_security":      decision.run_security,
+            "run_quality":       decision.run_quality,
+            "run_dependency":    decision.run_dependency or has_dep_changes,
+            "run_test_coverage": decision.run_test_coverage and has_business_changes and test_files_in_pr == 0,
+            "priority":          decision.priority,
+            "focus_files":       decision.focus_files,
+            "security_reason":   decision.run_security_reason,
+            "quality_reason":    decision.run_quality_reason,
             "overall_assessment": decision.overall_assessment,
-            "decided_at": datetime.now(timezone.utc).isoformat(),
+            "decided_at":        datetime.now(timezone.utc).isoformat(),
         }
         logger.info(
-            "[Coordinator] 决策完成 | security=%s | quality=%s | priority=%s",
-            decision.run_security,
-            decision.run_quality,
+            "[Coordinator] 决策完成 | security=%s | quality=%s | dependency=%s | test_coverage=%s | priority=%s",
+            decision.run_security, decision.run_quality,
+            routing_decision["run_dependency"], routing_decision["run_test_coverage"],
             decision.priority,
         )
     else:
-        # LLM 失败时：保守策略，全部启用
+        # LLM 失败时：保守策略
         routing_decision = {
-            "run_security": True,
-            "run_quality": True,
-            "priority": "medium",
-            "focus_files": [],
-            "security_reason": "Fallback: LLM unavailable, enabling all reviewers",
-            "quality_reason": "Fallback: LLM unavailable, enabling all reviewers",
-            "overall_assessment": "LLM routing failed, proceeding with full review.",
-            "decided_at": datetime.now(timezone.utc).isoformat(),
+            "run_security":      True,
+            "run_quality":       True,
+            "run_dependency":    has_dep_changes,
+            "run_test_coverage": False,
+            "priority":          "medium",
+            "focus_files":       [],
+            "security_reason":   "降级：LLM 不可用，启用全部审查",
+            "quality_reason":    "降级：LLM 不可用，启用全部审查",
+            "overall_assessment": "LLM 路由决策失败，使用保守策略继续审查。",
+            "decided_at":        datetime.now(timezone.utc).isoformat(),
         }
         logger.warning("[Coordinator] 使用保守默认路由策略")
 
     msg = (
         f"[Coordinator] security={routing_decision['run_security']} "
         f"| quality={routing_decision['run_quality']} "
+        f"| dependency={routing_decision['run_dependency']} "
+        f"| test_coverage={routing_decision['run_test_coverage']} "
         f"| priority={routing_decision['priority']} "
         f"| focus={routing_decision['focus_files']}"
     )

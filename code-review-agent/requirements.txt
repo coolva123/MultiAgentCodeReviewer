@@ -1,4 +1,7 @@
 langgraph>=0.2.0
+langgraph-checkpoint-postgres>=2.0.0
+psycopg[binary]>=3.1.0
+psycopg-pool>=3.2.0
 unidiff>=0.7.5
 langchain>=0.3.0
 langchain-openai>=0.2.0
@@ -21,4 +24,4 @@ httpx[socks]>=0.27.0
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
-tavily-python>=0.3.0
+langchain-tavily>=0.1.6

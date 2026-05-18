@@ -83,16 +83,24 @@ def format_report(
     repo_name: str,
     executive_summary: str,
     tool_call_log: list[dict] | None = None,
+    dependency_findings: list[dict] | None = None,
+    test_coverage_findings: list[dict] | None = None,
 ) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    tool_call_log = tool_call_log or []
+    tool_call_log          = tool_call_log or []
+    dependency_findings    = dependency_findings or []
+    test_coverage_findings = test_coverage_findings or []
 
     sec_counts  = _count_by_severity(security_findings)
     qual_counts = _count_by_severity(quality_findings)
+    dep_counts  = _count_by_severity(dependency_findings)
+    cov_counts  = _count_by_severity(test_coverage_findings)
     total_sec   = len(security_findings)
     total_qual  = len(quality_findings)
-    total_all   = total_sec + total_qual
-    risk_badge  = _risk_badge(security_findings)
+    total_dep   = len(dependency_findings)
+    total_cov   = len(test_coverage_findings)
+    total_all   = total_sec + total_qual + total_dep + total_cov
+    risk_badge  = _risk_badge(security_findings + dependency_findings)
 
     lines: list[str] = []
 
@@ -106,7 +114,7 @@ def format_report(
         f"| **PR** | {pr_metadata.get('title', 'N/A')} |",
         f"| **风险等级** | {risk_badge} |",
         f"| **生成时间** | {now} |",
-        f"| **总计发现** | {total_all} 条（安全 {total_sec} / 质量 {total_qual}）|",
+        f"| **总计发现** | {total_all} 条（安全 {total_sec} / 质量 {total_qual} / 依赖 {total_dep} / 测试 {total_cov}）|",
         "",
         "---",
         "",
@@ -130,6 +138,8 @@ def format_report(
         "|------|:-----------:|:-------:|:---------:|:------:|:------:|:----:|",
         f"| **安全审查** | {sec_counts['critical']} | {sec_counts['high']} | {sec_counts['medium']} | {sec_counts['low']} | {sec_counts['info']} | {total_sec} |",
         f"| **质量审查** | {qual_counts['critical']} | {qual_counts['high']} | {qual_counts['medium']} | {qual_counts['low']} | {qual_counts['info']} | {total_qual} |",
+        f"| **依赖安全** | {dep_counts['critical']} | {dep_counts['high']} | {dep_counts['medium']} | {dep_counts['low']} | {dep_counts['info']} | {total_dep} |",
+        f"| **测试覆盖** | {cov_counts['critical']} | {cov_counts['high']} | {cov_counts['medium']} | {cov_counts['low']} | {cov_counts['info']} | {total_cov} |",
         "",
         "---",
         "",

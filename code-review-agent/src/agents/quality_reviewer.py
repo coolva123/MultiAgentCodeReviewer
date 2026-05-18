@@ -66,24 +66,24 @@ def _get_quality_tools() -> tuple[list, dict]:
 # ── Pydantic output schema ─────────────────────────────────────────────────────
 
 class _QualityFinding(BaseModel):
-    file: str = Field(description="Filename where the issue was found")
-    line: Optional[int] = Field(None, description="Line number, or null if unknown")
-    severity: str = Field(description="high | medium | low | info")
+    file: str = Field(description="发现问题的文件路径")
+    line: Optional[int] = Field(None, description="问题所在行号，未知时填 null")
+    severity: str = Field(description="严重等级：high | medium | low | info")
     category: str = Field(
-        description="e.g. complexity, naming, error_handling, duplication, test_quality, dead_code, performance"
+        description="问题类别，例如：complexity（复杂度）、naming（命名）、error_handling（错误处理）、duplication（重复代码）、test_quality（测试质量）、dead_code（死代码）、performance（性能）"
     )
-    title: str = Field(description="Short issue title (< 80 chars)")
-    description: str = Field(description="Explanation of the quality problem")
-    suggestion: str = Field(description="Concrete refactoring or improvement suggestion")
+    title: str = Field(description="问题标题，请用中文简洁描述（不超过 40 字）")
+    description: str = Field(description="用中文详细说明质量问题的原因和影响")
+    suggestion: str = Field(description="用中文给出具体可执行的重构或改进建议")
 
 
 class _QualityFindings(BaseModel):
     findings: list[_QualityFinding] = Field(default_factory=list)
     overall_quality: str = Field(
-        description="Overall quality score: poor | fair | good | excellent",
+        description="整体质量评分：poor（差）| fair（一般）| good（良好）| excellent（优秀）",
         default="good",
     )
-    summary: str = Field(description="One-sentence summary of the code quality of this PR")
+    summary: str = Field(description="用中文一句话概括本次 PR 的代码质量状况")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -118,9 +118,9 @@ def _build_human_content(routing: dict, diff_files: list[dict], historical: list
     if historical:
         context_block = "\n".join(f"  • {h}" for h in historical)
         base += (
-            f"\n\n=== HISTORICAL CONTEXT (same repo, similar findings) ===\n"
+            f"\n\n=== 历史审查记录（同仓库，相似发现）===\n"
             f"{context_block}\n"
-            "Use the above as reference patterns — do not re-report them unless you see the same issue in the NEW diff."
+            "以上为参考模式——除非在本次新增代码中发现完全相同的问题，否则不要重复上报。"
         )
     return base
 
@@ -252,7 +252,7 @@ def _static_plus_llm(
         file_summaries_parts.append(
             f"### {f['filename']}\n"
             f"```diff\n{patch}\n```\n"
-            f"**AST Metrics:**\n```json\n{tool_output}\n```"
+            f"**静态分析结果：**\n```json\n{tool_output}\n```"
         )
 
     llm = get_llm(temperature=0.1)
@@ -266,7 +266,7 @@ def _static_plus_llm(
     if historical:
         context_block = "\n".join(f"  • {h}" for h in historical)
         human_content += (
-            f"\n\n=== HISTORICAL CONTEXT ===\n{context_block}\n"
+            f"\n\n=== 历史审查记录 ===\n{context_block}\n"
         )
 
     messages = [

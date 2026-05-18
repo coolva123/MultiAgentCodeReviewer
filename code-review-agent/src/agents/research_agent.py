@@ -81,9 +81,9 @@ def research_agent_node(state: ReviewState) -> dict:
 
     # 生成研究摘要
     messages.append(HumanMessage(content=(
-        "Based on the tool results above, write a concise structured research report. "
-        "Use clear sections (## Tech Stack, ## Known Issues, ## CVE References, ## Security Recommendations). "
-        "Keep it under 800 words."
+        "请根据以上工具调用结果，用中文撰写一份简洁的结构化研究报告。"
+        "使用清晰的章节划分：## 技术栈、## 已知问题、## CVE 参考、## 安全建议。"
+        "全文不超过 800 字，力求精炼具体。"
     )))
     try:
         summary_response = get_llm(temperature=0.2).invoke(strip_reasoning(messages))

@@ -66,22 +66,22 @@ def _get_security_tools() -> tuple[list, dict]:
 # ── Pydantic output schema ─────────────────────────────────────────────────────
 
 class _SecurityFinding(BaseModel):
-    file: str = Field(description="Filename where the issue was found")
-    line: Optional[int] = Field(None, description="Line number, or null if unknown")
-    severity: str = Field(description="critical | high | medium | low | info")
-    category: str = Field(description="e.g. hardcoded_secret, sql_injection, insecure_deserialization")
-    title: str = Field(description="Short issue title (< 80 chars)")
-    description: str = Field(description="Explanation of the vulnerability and why it is dangerous")
-    suggestion: str = Field(description="Concrete remediation step")
+    file: str = Field(description="发现问题的文件路径")
+    line: Optional[int] = Field(None, description="问题所在行号，未知时填 null")
+    severity: str = Field(description="严重等级：critical | high | medium | low | info")
+    category: str = Field(description="问题类别，例如：hardcoded_secret、sql_injection、insecure_deserialization")
+    title: str = Field(description="问题标题，请用中文简洁描述（不超过 40 字）")
+    description: str = Field(description="用中文详细说明漏洞原因及危害")
+    suggestion: str = Field(description="用中文给出具体可执行的修复建议")
 
 
 class _SecurityFindings(BaseModel):
     findings: list[_SecurityFinding] = Field(default_factory=list)
     overall_risk: str = Field(
-        description="Overall risk level: critical | high | medium | low | none",
+        description="整体风险等级：critical | high | medium | low | none",
         default="none",
     )
-    summary: str = Field(description="One-sentence summary of the security posture of this PR")
+    summary: str = Field(description="用中文一句话概括本次 PR 的安全态势")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -116,9 +116,9 @@ def _build_human_content(routing: dict, diff_files: list[dict], historical: list
     if historical:
         context_block = "\n".join(f"  • {h}" for h in historical)
         base += (
-            f"\n\n=== HISTORICAL CONTEXT (same repo, similar findings) ===\n"
+            f"\n\n=== 历史审查记录（同仓库，相似发现）===\n"
             f"{context_block}\n"
-            "Use the above as reference patterns — do not re-report them unless you see the same issue in the NEW diff."
+            "以上为参考模式——除非在本次新增代码中发现完全相同的问题，否则不要重复上报。"
         )
     return base
 
@@ -252,7 +252,7 @@ def _static_plus_llm(
     if historical:
         context_block = "\n".join(f"  • {h}" for h in historical)
         human_content += (
-            f"\n\n=== HISTORICAL CONTEXT ===\n{context_block}\n"
+            f"\n\n=== 历史审查记录 ===\n{context_block}\n"
         )
 
     messages = [
