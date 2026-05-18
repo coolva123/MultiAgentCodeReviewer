@@ -54,33 +54,38 @@ def tavily_search(query: str, search_depth: str = "basic") -> str:
 @tool
 def fetch_repo_readme(repo_url: str) -> str:
     """获取 GitHub 仓库的 README，了解项目背景和技术栈。
+    返回 JSON 字符串：{"content": str, "sha": str}
 
     Args:
         repo_url: GitHub 仓库 URL，例如 https://github.com/owner/repo
     """
+    import base64
     try:
         from config.settings import GITHUB_TOKEN
 
         path = repo_url.rstrip("/").replace("https://github.com/", "")
         if "/" not in path:
-            return f"Invalid GitHub URL: {repo_url}"
+            return json.dumps({"content": f"Invalid GitHub URL: {repo_url}", "sha": ""})
 
         api_url = f"https://api.github.com/repos/{path}/readme"
-        headers = {"Accept": "application/vnd.github.v3.raw"}
+        headers = {"Accept": "application/vnd.github+json"}
         if GITHUB_TOKEN:
             headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
 
         resp = requests.get(api_url, headers=headers, timeout=10)
         if resp.status_code == 200:
-            text = resp.text
-            return text[:4000] + ("\n...[truncated]" if len(text) > 4000 else "")
+            data = resp.json()
+            sha = data.get("sha", "")
+            raw = base64.b64decode(data.get("content", "")).decode("utf-8", errors="replace")
+            content = raw[:4000] + ("\n...[truncated]" if len(raw) > 4000 else "")
+            return json.dumps({"content": content, "sha": sha})
         elif resp.status_code == 404:
-            return "README not found for this repository."
+            return json.dumps({"content": "README not found for this repository.", "sha": ""})
         else:
-            return f"Could not fetch README: HTTP {resp.status_code}"
+            return json.dumps({"content": f"Could not fetch README: HTTP {resp.status_code}", "sha": ""})
     except Exception as exc:
         logger.warning("[fetch_repo_readme] 失败: %s", exc)
-        return f"Error fetching README: {exc}"
+        return json.dumps({"content": f"Error fetching README: {exc}", "sha": ""})
 
 
 @tool
