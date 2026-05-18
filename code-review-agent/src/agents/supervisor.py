@@ -32,18 +32,18 @@ _MAX_ITERATIONS = 5
 class SupervisorDecision(BaseModel):
     action: Literal["research", "review", "file_review", "report"] = Field(
         description=(
-            "Next action: "
-            "'research' = call Research Agent, "
-            "'review' = call Review Pipeline (PR/diff mode), "
-            "'file_review' = call File Review Pipeline (upload mode), "
-            "'report' = generate final report (terminates the loop)"
+            "下一步行动："
+            "'research' = 调用研究 Agent，"
+            "'review' = 调用审查流水线（PR/diff 模式），"
+            "'file_review' = 调用文件审查流水线（上传模式），"
+            "'report' = 生成最终报告（终止循环）"
         )
     )
     instruction: str = Field(
-        description="Specific, focused instruction for the chosen agent or pipeline (1-3 sentences)."
+        description="用中文给目标 Agent 或流水线写一条具体、聚焦的指令（1-3 句话）。"
     )
     reasoning: str = Field(
-        description="One-sentence explanation of why this action was chosen."
+        description="用中文一句话说明选择该行动的原因。"
     )
 
 
@@ -60,10 +60,22 @@ def supervisor_node(state: ReviewState) -> Command:
 
     has_diff = bool(diff_content and diff_content.strip())
     has_files = bool(diff_files)
-    # review_pipeline_called 用于判断 review 是否已执行（独立于 findings 数量）
     review_called = state.get("review_pipeline_called", False)
     has_findings = bool(security_findings or quality_findings)
     mode = "pr_diff" if has_diff else ("file_upload" if has_files else "unknown")
+
+    historical_context = state.get("historical_context", "")
+    project_context = state.get("project_context", {})
+
+    # iter=0: always enrich context first (no LLM call needed)
+    if iteration == 0 and not project_context:
+        return Command(
+            goto="context_enrichment",
+            update={
+                "iteration_count": iteration + 1,
+                "agent_messages": ["[Supervisor] iter=0 → context_enrichment"],
+            },
+        )
 
     logger.info(
         "[Supervisor] 迭代 %d | mode=%s | research=%s | review_called=%s | findings=%s | sec=%d | qual=%d",
@@ -90,6 +102,16 @@ def supervisor_node(state: ReviewState) -> Command:
         else research_context or "None yet."
     )
 
+    historical_snippet = (
+        historical_context[:600] + "\n...[truncated]"
+        if len(historical_context) > 600
+        else historical_context or "该仓库暂无历史审查记录。"
+    )
+
+    profile = project_context.get("profile", {})
+    project_summary = profile.get("summary", "") or "Not yet enriched."
+    security_level = profile.get("security_level", "medium")
+
     messages = [
         SystemMessage(content=prompt_tmpl.SYSTEM),
         HumanMessage(content=prompt_tmpl.HUMAN.format(
@@ -97,12 +119,15 @@ def supervisor_node(state: ReviewState) -> Command:
             repo_url=repo_url or "not provided",
             mode=mode,
             iteration_count=iteration,
+            historical_context=historical_snippet,
             research_context=research_snippet,
             sec_count=len(security_findings),
             qual_count=len(quality_findings),
             review_called=review_called,
             has_findings=has_findings,
             recent_messages="\n".join(recent_msgs) if recent_msgs else "None",
+            project_summary=project_summary,
+            security_level=security_level,
         )),
     ]
 
@@ -133,6 +158,7 @@ def supervisor_node(state: ReviewState) -> Command:
     update: dict = {
         "iteration_count": iteration + 1,
         "supervisor_instruction": decision.instruction,
+        "historical_context": historical_context,
         "agent_messages": [
             f"[Supervisor] iter={iteration} action={decision.action} | {decision.reasoning}"
         ],

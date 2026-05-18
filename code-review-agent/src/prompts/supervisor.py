@@ -45,7 +45,13 @@ HUMAN = """## 当前审查状态
 **输入模式**：{mode}
 **Supervisor 迭代次数**：{iteration_count}
 
-### 研究上下文
+### 项目画像（Context Enrichment）
+摘要：{project_summary}（安全级别：{security_level}）
+
+### 该仓库历史审查记录（长期记忆）
+{historical_context}
+
+### 本轮研究上下文
 {research_context}
 
 ### 审查发现
