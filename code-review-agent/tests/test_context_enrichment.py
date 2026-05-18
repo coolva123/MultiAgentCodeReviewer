@@ -46,3 +46,64 @@ class TestFetchRepoReadme:
         result = json.loads(raw)
         assert len(result["content"]) < 5000
         assert "truncated" in result["content"]
+
+
+# ── Task 2 tests: ProjectProfileStore ────────────────────────────────────────
+
+class TestProjectProfileStore:
+    def _make_store(self):
+        from src.harness.memory.project_profile import ProjectProfileStore
+        store = ProjectProfileStore()
+        ProjectProfileStore._schema_ready = True  # skip real DB init
+        return store
+
+    @patch("psycopg2.connect")
+    def test_get_profile_cache_hit(self, mock_connect):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchone.return_value = (
+            "Python", "web-api", "high", "FastAPI", "type hints required", "A web API", "sha1", "{}"
+        )
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        store = self._make_store()
+        result = store.get_profile("owner/repo", "sha1")
+        assert result is not None
+        assert result["tech_stack"] == "Python"
+        assert result["from_cache"] is True
+
+    @patch("psycopg2.connect")
+    def test_get_profile_cache_miss(self, mock_connect):
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchone.return_value = None
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        store = self._make_store()
+        result = store.get_profile("owner/repo", "sha_unknown")
+        assert result is None
+
+    @patch("psycopg2.connect")
+    def test_save_profile_calls_upsert(self, mock_connect):
+        conn = MagicMock()
+        cur = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        conn.cursor.return_value.__enter__ = MagicMock(return_value=cur)
+        conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+        mock_connect.return_value = conn
+
+        store = self._make_store()
+        store.save_profile("owner/repo", {"tech_stack": "Go"}, "sha2")
+        assert cur.execute.called
+        sql = cur.execute.call_args[0][0]
+        assert "INSERT INTO project_profiles" in sql
+        assert "ON CONFLICT" in sql
