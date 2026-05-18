@@ -52,11 +52,15 @@ class ReviewState(TypedDict):
 
     security_findings: Annotated[List[ReviewIssue], operator.add]
     quality_findings: Annotated[List[ReviewIssue], operator.add]
+    dependency_findings: Annotated[List[ReviewIssue], operator.add]
+    test_coverage_findings: Annotated[List[ReviewIssue], operator.add]
 
     final_report: Optional[str]
 
     # ── Supervisor 多 Agent 控制 ──────────────────────────
     research_context: str                   # Research Agent 累积输出
+    historical_context: str                 # 首轮从长期记忆查询的同仓库历史 findings 摘要
+    project_context: Dict[str, Any]         # ContextEnrichment 填充的三层上下文
     supervisor_instruction: str             # Supervisor 给下一个 Agent 的指令
     iteration_count: int                    # Supervisor 循环计数（防止无限循环）
     review_pipeline_called: bool            # Review 子图是否已被调用（与 findings 数量无关）
