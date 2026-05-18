@@ -57,9 +57,13 @@ def _base_state(session_id: str) -> dict:
         "routing_decision": {},
         "security_findings": [],
         "quality_findings": [],
+        "dependency_findings": [],
+        "test_coverage_findings": [],
         "final_report": None,
         # Supervisor 多 Agent
         "research_context": "",
+        "historical_context": "",
+        "project_context": {},
         "supervisor_instruction": "",
         "iteration_count": 0,
         "review_pipeline_called": False,
@@ -96,10 +100,21 @@ async def _run_graph(
             initial_state["diff_content"] = diff_content
             initial_state["repo_name"] = repo_name or "unknown"
             initial_state["pr_metadata"] = pr_metadata or {}
-            # 从 PR URL 提取仓库 URL 供 Research Agent 使用
-            # https://github.com/owner/repo/pull/123 → https://github.com/owner/repo
             parts = pr_url.rstrip("/").split("/pull/")
             initial_state["repo_url"] = parts[0] if len(parts) == 2 else ""
+
+            # 拿到 head_sha 后切换为确定性 session_id，并迁移任务记录
+            from config.session import make_pr_session_id
+            stable_id = make_pr_session_id(
+                repo_name=repo_name or "unknown",
+                pr_number=pr_metadata["number"],
+                head_sha=pr_metadata["head_sha"],
+            )
+            if stable_id != session_id:
+                _tasks[stable_id] = _tasks.pop(session_id)
+                session_id = stable_id
+                initial_state["session_id"] = stable_id
+
         except Exception as exc:
             logger.error("获取 PR 失败 session=%s: %s", session_id, exc)
             _tasks[session_id]["status"] = "error"
@@ -112,6 +127,27 @@ async def _run_graph(
         from src.graph.supervisor_graph import supervisor_graph as graph
 
         config = {"configurable": {"thread_id": session_id}}
+
+        # 断点恢复检查：若该 session 已有完成的审查结果，直接返回缓存
+        try:
+            existing = graph.get_state(config)
+            if existing and existing.values.get("review_complete"):
+                cached = existing.values.get("final_report", "⚠️ 报告内容为空。")
+                logger.info("断点恢复命中缓存，直接返回已完成审查 session=%s", session_id)
+                _tasks[session_id].update(
+                    status="done",
+                    progress="审查完成（缓存命中）",
+                    report=cached,
+                    stats={
+                        "security": len(existing.values.get("security_findings", [])),
+                        "quality":  len(existing.values.get("quality_findings", [])),
+                        "tools":    len(existing.values.get("tool_call_log", [])),
+                    },
+                )
+                return
+        except Exception as exc:
+            logger.debug("checkpoint 状态读取失败（跳过恢复检查）: %s", exc)
+
         result = await asyncio.to_thread(graph.invoke, initial_state, config)
 
         report = result.get("final_report") or "⚠️ 报告生成失败，请检查日志。"
@@ -144,19 +180,25 @@ class ReviewRequest(BaseModel):
 
 @app.post("/api/review")
 async def submit_review(body: ReviewRequest, background_tasks: BackgroundTasks):
-    session_id = str(uuid.uuid4())
-    state = _base_state(session_id)
+    from config.session import make_local_session_id
 
     if body.mode == "pr_url":
         if not body.pr_url or not body.pr_url.strip():
             raise HTTPException(400, "pr_url 不能为空")
-        _tasks[session_id] = _new_task()
-        background_tasks.add_task(_run_graph, session_id, state, body.pr_url.strip())
+        # session_id 在后台任务拉完 PR 信息后才能确定，先用临时 UUID 占位
+        # _run_graph 内部拿到 head_sha 后会更新为确定性 session_id
+        temp_id = make_local_session_id()
+        _tasks[temp_id] = _new_task()
+        state = _base_state(temp_id)
+        background_tasks.add_task(_run_graph, temp_id, state, body.pr_url.strip())
+        return {"session_id": temp_id}
 
     elif body.mode == "diff_text":
         if not body.diff_content or not body.diff_content.strip():
             raise HTTPException(400, "diff_content 不能为空")
+        session_id = make_local_session_id()
         repo = body.repo_name or "my-project"
+        state = _base_state(session_id)
         state.update(
             diff_content=body.diff_content,
             repo_name=repo,
@@ -164,11 +206,10 @@ async def submit_review(body: ReviewRequest, background_tasks: BackgroundTasks):
         )
         _tasks[session_id] = _new_task()
         background_tasks.add_task(_run_graph, session_id, state)
+        return {"session_id": session_id}
 
     else:
         raise HTTPException(400, "mode 必须是 pr_url 或 diff_text")
-
-    return {"session_id": session_id}
 
 
 @app.post("/api/review/upload")

@@ -18,7 +18,7 @@ MultiAgent Code Reviewer — 入口
 import argparse
 import logging
 import sys
-import uuid
+import time
 from pathlib import Path
 
 logging.basicConfig(
@@ -78,11 +78,52 @@ def _load_from_github(pr_url: str) -> tuple[str, str, dict]:
         sys.exit(1)
 
 
+# ── 内部重试（方案 C）────────────────────────────────────────────────────────
+
+_MAX_INVOKE_ATTEMPTS = 3
+_RETRY_BASE_DELAY    = 5.0   # 秒；实际等待：5s → 10s（指数退避）
+
+
+def _invoke_with_retry(graph, initial_state: dict, config: dict) -> dict:
+    """
+    带指数退避的 graph.invoke 重试包装器。
+
+    - 同一 thread_id 重试时，LangGraph 自动从最后一个 checkpoint 续跑，
+      不会从头重复已完成的节点。
+    - 只对进程级异常（网络抖动、LLM 超时、API 限流）触发重试；
+      正常完成（含 review_complete=False 的边缘情况）直接返回。
+    """
+    last_exc: Exception | None = None
+
+    for attempt in range(1, _MAX_INVOKE_ATTEMPTS + 1):
+        try:
+            logger.info("Graph 开始执行（第 %d/%d 次尝试）...", attempt, _MAX_INVOKE_ATTEMPTS)
+            result = graph.invoke(initial_state, config=config)
+            if attempt > 1:
+                logger.info("第 %d 次尝试成功（已从 checkpoint 断点续跑）", attempt)
+            return result
+        except Exception as exc:
+            last_exc = exc
+            if attempt < _MAX_INVOKE_ATTEMPTS:
+                delay = _RETRY_BASE_DELAY * (2 ** (attempt - 1))   # 5s, 10s
+                logger.warning(
+                    "第 %d/%d 次尝试失败: %s | %.0fs 后重试，LangGraph 将从 checkpoint 续跑...",
+                    attempt, _MAX_INVOKE_ATTEMPTS, exc, delay,
+                )
+                time.sleep(delay)
+            else:
+                logger.error(
+                    "全部 %d 次尝试均失败，最后错误: %s",
+                    _MAX_INVOKE_ATTEMPTS, exc,
+                )
+
+    raise last_exc  # type: ignore[misc]
+
+
 # ── 主流程 ────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
-    session_id = str(uuid.uuid4())
 
     # ── 获取 diff ──────────────────────────────────────────────────────────────
     if args.diff_file:
@@ -90,11 +131,19 @@ def main():
         repo_name   = args.repo
         pr_metadata = {"title": args.pr_title or f"Review of {Path(args.diff_file).name}"}
         pr_url      = None
+        from config.session import make_local_session_id
+        session_id  = make_local_session_id()
     else:
         diff_content, repo_name, pr_metadata = _load_from_github(args.pr_url)
         if args.repo != "local/repo":
             repo_name = args.repo
         pr_url = args.pr_url
+        from config.session import make_pr_session_id
+        session_id = make_pr_session_id(
+            repo_name=repo_name,
+            pr_number=pr_metadata["number"],
+            head_sha=pr_metadata["head_sha"],
+        )
 
     logger.info("=" * 60)
     logger.info("MultiAgent Code Reviewer")
@@ -107,6 +156,30 @@ def main():
     # ── 执行图 ─────────────────────────────────────────────────────────────────
     from src.graph.supervisor_graph import supervisor_graph
 
+    config = {"configurable": {"thread_id": session_id}}
+
+    # ── 断点恢复检查 ───────────────────────────────────────────────────────────
+    # 若同一 session_id 已有完成的审查结果，直接返回缓存报告，无需重跑
+    try:
+        existing = supervisor_graph.get_state(config)
+        if existing and existing.values.get("review_complete"):
+            cached_report = existing.values.get("final_report", "")
+            logger.info("=" * 60)
+            logger.info("检测到已完成的审查结果（断点恢复命中缓存），直接返回")
+            logger.info("session_id : %s", session_id)
+            logger.info("=" * 60)
+            if cached_report:
+                if args.output:
+                    Path(args.output).write_text(cached_report, encoding="utf-8")
+                    logger.info("报告已写入: %s", Path(args.output).resolve())
+                else:
+                    print("\n" + "=" * 60, flush=True)
+                    print(cached_report, flush=True)
+                    print("=" * 60, flush=True)
+            return 0
+    except Exception as exc:
+        logger.debug("checkpoint 状态读取失败（跳过恢复检查）: %s", exc)
+
     initial_state = {
         "diff_content":    diff_content,
         "pr_metadata":     pr_metadata,
@@ -116,10 +189,14 @@ def main():
         "diff_files":      [],
         "diff_summary":    {},
         "routing_decision": {},
-        "security_findings": [],
-        "quality_findings":  [],
+        "security_findings":      [],
+        "quality_findings":       [],
+        "dependency_findings":    [],
+        "test_coverage_findings": [],
         "final_report":    None,
         "research_context": "",
+        "historical_context": "",
+        "project_context":        {},
         "supervisor_instruction": "",
         "iteration_count": 0,
         "review_pipeline_called": False,
@@ -130,10 +207,7 @@ def main():
         "review_complete": False,
     }
 
-    config = {"configurable": {"thread_id": session_id}}
-
-    logger.info("Graph 开始执行 ...")
-    result = supervisor_graph.invoke(initial_state, config=config)
+    result = _invoke_with_retry(supervisor_graph, initial_state, config)
 
     # ── 输出摘要日志 ───────────────────────────────────────────────────────────
     logger.info("=" * 60)
@@ -148,6 +222,8 @@ def main():
                 rd.get("run_security"), rd.get("run_quality"), rd.get("priority"))
     logger.info("security_findings : %d 条", len(result.get("security_findings", [])))
     logger.info("quality_findings  : %d 条", len(result.get("quality_findings", [])))
+    logger.info("dependency_findings : %d 条", len(result.get("dependency_findings", [])))
+    logger.info("test_coverage_findings : %d 条", len(result.get("test_coverage_findings", [])))
     logger.info("tool_calls        : %d 次", len(result.get("tool_call_log", [])))
     logger.info("=" * 60)
 
