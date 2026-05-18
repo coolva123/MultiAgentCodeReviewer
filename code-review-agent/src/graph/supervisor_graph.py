@@ -17,6 +17,7 @@ import logging
 
 from langgraph.graph import END, START, StateGraph
 
+from src.agents.context_enrichment import context_enrichment_node
 from src.agents.report_generator import report_generator_node
 from src.agents.research_agent import research_agent_node
 from src.agents.supervisor import supervisor_node
@@ -39,6 +40,7 @@ def build_supervisor_graph():
     builder.add_node("review_pipeline",      review_subgraph)       # 子图作为节点
     builder.add_node("file_review_pipeline", file_review_subgraph)  # 子图作为节点
     builder.add_node("report_generator",     report_generator_node)
+    builder.add_node("context_enrichment",   context_enrichment_node)
 
     # ── 入口 ────────────────────────────────────────────────────────────────────
     builder.add_edge(START, "supervisor")
@@ -48,12 +50,28 @@ def build_supervisor_graph():
     builder.add_edge("research_agent",       "supervisor")
     builder.add_edge("review_pipeline",      "supervisor")
     builder.add_edge("file_review_pipeline", "supervisor")
+    builder.add_edge("context_enrichment",   "supervisor")
 
     # ── 终止 ────────────────────────────────────────────────────────────────────
     builder.add_edge("report_generator", END)
 
-    graph = builder.compile()
-    logger.info("[SupervisorGraph] 编译完成 | 节点: %s", list(builder.nodes))
+    # langgraph dev / LangGraph Cloud 会自己管理持久化，禁止传入自定义 checkpointer；
+    # 仅在直接运行（main.py / server.py / pytest）时才挂载 PostgresSaver。
+    import sys
+    under_langgraph_api = "langgraph_api" in sys.modules
+
+    if under_langgraph_api:
+        graph = builder.compile()
+        logger.info("[SupervisorGraph] 编译完成（LangGraph API 模式，平台托管持久化）| 节点: %s", list(builder.nodes))
+    else:
+        try:
+            from src.harness.checkpointer import get_checkpointer
+            graph = builder.compile(checkpointer=get_checkpointer())
+            logger.info("[SupervisorGraph] 编译完成（含 PostgreSQL Checkpointer）| 节点: %s", list(builder.nodes))
+        except Exception as exc:
+            logger.warning("[SupervisorGraph] Checkpointer 不可用，降级为无持久化模式: %s", exc)
+            graph = builder.compile()
+            logger.info("[SupervisorGraph] 编译完成（无 Checkpointer）| 节点: %s", list(builder.nodes))
     return graph
 
 
