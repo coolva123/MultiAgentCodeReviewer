@@ -51,7 +51,9 @@ class ProjectProfileStore:
             logger.error("[ProjectProfileStore] schema init failed: %s", exc)
 
     def get_profile(self, repo_name: str, current_readme_sha: str) -> Optional[dict]:
-        """Return cached profile or None on cache miss."""
+        """缓存命中返回画像 dict；未命中返回 None。
+        命中条件：readme_sha 匹配，或 updated_at 在 30 天内。
+        """
         self._ensure_schema()
         try:
             with self._connection() as conn:

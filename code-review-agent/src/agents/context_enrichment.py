@@ -92,7 +92,7 @@ def context_enrichment_node(state: ReviewState) -> Dict[str, Any]:
     repo_url = state.get("repo_url", "")
     diff_content = state.get("diff_content", "")
 
-    # ── Layer 1: Project Profile ───────────────────────────────────────────────
+    # ── 第一层：项目画像（LLM 生成 + DB 缓存）────────────────────────────────────
     profile: dict = {}
     structure_text = ""
     if repo_url:
@@ -143,7 +143,7 @@ def context_enrichment_node(state: ReviewState) -> Dict[str, Any]:
             logger.warning("[ContextEnrichment] Layer1 failed: %s", exc)
             profile = {"from_cache": False}
 
-    # ── Layer 2: Related Files ─────────────────────────────────────────────────
+    # ── 第二层：改动文件周边上下文（纯启发式，不调 LLM）──────────────────────────
     related_files: list = []
     if repo_url and diff_content:
         try:
@@ -163,7 +163,7 @@ def context_enrichment_node(state: ReviewState) -> Dict[str, Any]:
         except Exception as exc:
             logger.warning("[ContextEnrichment] Layer2 failed: %s", exc)
 
-    # ── Layer 3: Historical Findings ───────────────────────────────────────────
+    # ── 第三层：历史 findings 检索（增强版 pgvector 查询）────────────────────────
     historical_findings = ""
     if repo_name and repo_name != "unknown":
         try:
@@ -185,8 +185,8 @@ def context_enrichment_node(state: ReviewState) -> Dict[str, Any]:
     from_cache = profile.get("from_cache", False)
     history_count = historical_findings.count("\n") + 1 if historical_findings else 0
     msg = (
-        f"[ContextEnrichment] profile={'cached' if from_cache else 'fresh'} | "
-        f"related_files={len(related_files)} | history={history_count}条"
+        f"[ContextEnrichment] profile={'缓存' if from_cache else '新生成'} | "
+        f"周边文件={len(related_files)} | 历史记录={history_count}条"
     )
     logger.info(msg)
 
